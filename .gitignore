@@ -8,3 +8,11 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Pytest
+.coverage
+coverage.xml
+htmlcov
+
+# IDE files
+.idea

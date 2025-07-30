@@ -1,10 +1,17 @@
 """Integration tests for config CLI commands"""
 
 import pytest
+import re
 from pathlib import Path
 from typer.testing import CliRunner
 
 from nova.main import app
+
+
+def strip_ansi(text):
+    """Remove ANSI escape sequences from text"""
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    return ansi_escape.sub('', text)
 
 
 class TestConfigCLI:
@@ -88,7 +95,9 @@ class TestConfigCLI:
         
         assert result.exit_code == 0
         assert "Show current configuration" in result.stdout
-        assert "--file" in result.stdout
+        # Strip ANSI codes that might appear in CI environments
+        clean_output = strip_ansi(result.stdout)
+        assert "--file" in clean_output
     
     def test_config_init_help(self):
         """Test config init command help"""
@@ -96,7 +105,9 @@ class TestConfigCLI:
         
         assert result.exit_code == 0
         assert "Initialize a new configuration file" in result.stdout
-        assert "--output" in result.stdout
+        # Strip ANSI codes that might appear in CI environments
+        clean_output = strip_ansi(result.stdout)
+        assert "--output" in clean_output
     
     def test_global_config_option(self, sample_config_yaml):
         """Test using global --config option"""

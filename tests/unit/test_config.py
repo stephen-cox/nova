@@ -6,7 +6,7 @@ import pytest
 import yaml
 
 from nova.core.config import ConfigManager, ConfigError
-from nova.models.config import NovaConfig, AIModelConfig, ChatConfig
+from nova.models.config import NovaConfig, AIModelConfig, ChatConfig, AIProfile
 
 
 class TestConfigManager:
@@ -18,8 +18,13 @@ class TestConfigManager:
         config = manager._load_default_config()
         
         assert isinstance(config, NovaConfig)
-        assert config.ai_model.provider == "openai"
-        assert config.ai_model.model_name == "gpt-3.5-turbo"
+        assert config.active_profile == "default"
+        assert "default" in config.profiles
+        
+        # Test the active AI config
+        active_config = config.get_active_ai_config()
+        assert active_config.provider == "openai"
+        assert active_config.model_name == "gpt-3.5-turbo"
         assert config.chat.auto_save is True
     
     def test_load_config_from_file(self, sample_config_yaml):
@@ -28,9 +33,14 @@ class TestConfigManager:
         config = manager.load_config(sample_config_yaml)
         
         assert isinstance(config, NovaConfig)
-        assert config.ai_model.provider == "openai"
-        assert config.ai_model.model_name == "gpt-3.5-turbo"
-        assert config.ai_model.max_tokens == 1000
+        assert config.active_profile == "test"
+        assert "test" in config.profiles
+        
+        # Test the active AI config from the loaded profile
+        active_config = config.get_active_ai_config()
+        assert active_config.provider == "openai"
+        assert active_config.model_name == "gpt-3.5-turbo"
+        assert active_config.max_tokens == 1000
         assert config.chat.max_history_length == 25
     
     def test_load_config_file_not_found(self, temp_dir):
@@ -56,19 +66,26 @@ class TestConfigManager:
         """Test environment variable overrides for API key"""
         mock_env_vars(NOVA_API_KEY="env-api-key")
         
+        # Remove existing API key from profile to test override
+        sample_config_dict["profiles"]["test"]["api_key"] = None
+        
         manager = ConfigManager()
         config_data = manager._apply_env_overrides(sample_config_dict.copy())
         
-        assert config_data["ai_model"]["api_key"] == "env-api-key"
+        # API key should be applied to the profile
+        assert config_data["profiles"]["test"]["api_key"] == "env-api-key"
     
     def test_apply_env_overrides_openai_key(self, sample_config_dict, mock_env_vars):
         """Test OpenAI API key environment variable"""
         mock_env_vars(OPENAI_API_KEY="openai-key")
         
+        # Remove existing API key from profile to test override
+        sample_config_dict["profiles"]["test"]["api_key"] = None
+        
         manager = ConfigManager()
         config_data = manager._apply_env_overrides(sample_config_dict.copy())
         
-        assert config_data["ai_model"]["api_key"] == "openai-key"
+        assert config_data["profiles"]["test"]["api_key"] == "openai-key"
     
     def test_apply_env_overrides_anthropic_key(self, sample_config_dict, mock_env_vars):
         """Test Anthropic API key environment variable"""
@@ -80,10 +97,13 @@ class TestConfigManager:
         
         mock_env_vars(ANTHROPIC_API_KEY="anthropic-key")
         
+        # Remove existing API key from profile to test override
+        sample_config_dict["profiles"]["test"]["api_key"] = None
+        
         manager = ConfigManager()
         config_data = manager._apply_env_overrides(sample_config_dict.copy())
         
-        assert config_data["ai_model"]["api_key"] == "anthropic-key"
+        assert config_data["profiles"]["test"]["api_key"] == "anthropic-key"
     
     def test_apply_env_overrides_model(self, sample_config_dict, mock_env_vars):
         """Test model name environment variable override"""
@@ -92,7 +112,7 @@ class TestConfigManager:
         manager = ConfigManager()
         config_data = manager._apply_env_overrides(sample_config_dict.copy())
         
-        assert config_data["ai_model"]["model_name"] == "gpt-4"
+        assert config_data["profiles"]["test"]["model_name"] == "gpt-4"
     
     def test_apply_env_overrides_provider(self, sample_config_dict, mock_env_vars):
         """Test provider environment variable override"""
@@ -101,7 +121,7 @@ class TestConfigManager:
         manager = ConfigManager()
         config_data = manager._apply_env_overrides(sample_config_dict.copy())
         
-        assert config_data["ai_model"]["provider"] == "anthropic"
+        assert config_data["profiles"]["test"]["provider"] == "anthropic"
     
     def test_save_config(self, temp_dir, sample_config):
         """Test saving configuration to file"""
@@ -116,10 +136,10 @@ class TestConfigManager:
         with open(output_path, 'r') as f:
             saved_data = yaml.safe_load(f)
         
-        assert saved_data["ai_model"]["provider"] == "openai"
-        assert saved_data["ai_model"]["model_name"] == "gpt-3.5-turbo"
+        assert saved_data["profiles"]["test"]["provider"] == "openai"
+        assert saved_data["profiles"]["test"]["model_name"] == "gpt-3.5-turbo"
         # API key should be replaced with placeholder
-        assert "Set via NOVA_API_KEY environment variable" in saved_data["ai_model"]["api_key"]
+        assert "Set via environment variables" in saved_data["profiles"]["test"]["api_key"]
     
     def test_save_config_creates_directory(self, temp_dir, sample_config):
         """Test that save_config creates parent directories"""
@@ -137,45 +157,59 @@ class TestNovaConfig:
     
     def test_valid_config_creation(self):
         """Test creating a valid configuration"""
+        test_profile = AIProfile(
+            name="test",
+            provider="openai",
+            model_name="gpt-4",
+            api_key="test-key"
+        )
+        
         config = NovaConfig(
-            ai_model=AIModelConfig(
-                provider="openai",
-                model_name="gpt-4",
-                api_key="test-key"
-            ),
+            profiles={"test": test_profile},
+            active_profile="test",
             chat=ChatConfig(
                 history_dir=Path("/tmp/test"),
                 max_history_length=100
             )
         )
         
-        assert config.ai_model.provider == "openai"
-        assert config.ai_model.model_name == "gpt-4"
+        active_config = config.get_active_ai_config()
+        assert active_config.provider == "openai"
+        assert active_config.model_name == "gpt-4"
         assert config.chat.max_history_length == 100
     
     def test_default_values(self):
         """Test default values are applied correctly"""
         config = NovaConfig()
         
-        assert config.ai_model.provider == "openai"
-        assert config.ai_model.model_name == "gpt-3.5-turbo"
-        assert config.ai_model.max_tokens == 2000
-        assert config.ai_model.temperature == 0.7
+        # Should have default active profile
+        assert config.active_profile == "default"
         assert config.chat.auto_save is True
         assert config.chat.max_history_length == 50
+        
+        # With no profiles, should get minimal defaults from get_active_ai_config
+        active_config = config.get_active_ai_config()
+        assert active_config.provider == "openai"  # AIModelConfig default
+        assert active_config.model_name == "gpt-3.5-turbo"  # AIModelConfig default
     
     def test_invalid_temperature(self):
         """Test validation of temperature values"""
         with pytest.raises(ValueError):
-            NovaConfig(
-                ai_model=AIModelConfig(temperature=2.0)  # Should be 0-1
+            AIProfile(
+                name="test",
+                provider="openai",
+                model_name="gpt-4",
+                temperature=2.0  # Should be 0-1
             )
     
     def test_invalid_max_tokens(self):
         """Test validation of max_tokens"""
         with pytest.raises(ValueError):
-            NovaConfig(
-                ai_model=AIModelConfig(max_tokens=-100)  # Should be positive
+            AIProfile(
+                name="test",
+                provider="openai",
+                model_name="gpt-4",
+                max_tokens=-100  # Should be positive
             )
 
 
@@ -224,3 +258,166 @@ class TestChatConfig:
         
         with pytest.raises(ValueError):
             ChatConfig(max_history_length=-1)
+
+
+class TestAIProfiles:
+    """Test the AI Profile functionality"""
+    
+    def test_profile_creation(self):
+        """Test creating an AI profile"""
+        profile = AIProfile(
+            name="test-profile",
+            provider="openai",
+            model_name="gpt-4",
+            max_tokens=3000,
+            temperature=0.8
+        )
+        
+        assert profile.name == "test-profile"
+        assert profile.provider == "openai"
+        assert profile.model_name == "gpt-4"
+        assert profile.max_tokens == 3000
+        assert profile.temperature == 0.8
+    
+    def test_profile_validation(self):
+        """Test profile validation"""
+        # Valid providers
+        AIProfile(name="test", provider="openai", model_name="gpt-4")
+        AIProfile(name="test", provider="anthropic", model_name="claude-3")
+        AIProfile(name="test", provider="ollama", model_name="llama2")
+        
+        # Invalid provider
+        with pytest.raises(ValueError, match="Provider must be one of"):
+            AIProfile(name="test", provider="invalid", model_name="model")
+    
+    def test_nova_config_with_profiles(self):
+        """Test NovaConfig with profiles"""
+        profile1 = AIProfile(
+            name="gpt4",
+            provider="openai", 
+            model_name="gpt-4"
+        )
+        profile2 = AIProfile(
+            name="claude",
+            provider="anthropic",
+            model_name="claude-3-sonnet"
+        )
+        
+        config = NovaConfig(
+            profiles={"gpt4": profile1, "claude": profile2},
+            active_profile="gpt4"
+        )
+        
+        assert len(config.profiles) == 2
+        assert config.active_profile == "gpt4"
+        assert "gpt4" in config.profiles
+        assert "claude" in config.profiles
+    
+    def test_get_active_ai_config_with_profile(self):
+        """Test getting active AI config when using a profile"""
+        profile = AIProfile(
+            name="test-profile",
+            provider="anthropic",
+            model_name="claude-3-haiku",
+            max_tokens=1500,
+            temperature=0.6
+        )
+        
+        config = NovaConfig(
+            profiles={"test": profile},
+            active_profile="test"
+        )
+        
+        active_config = config.get_active_ai_config()
+        assert active_config.provider == "anthropic"
+        assert active_config.model_name == "claude-3-haiku"
+        assert active_config.max_tokens == 1500
+        assert active_config.temperature == 0.6
+    
+    def test_get_active_ai_config_without_explicit_profile(self):
+        """Test getting active AI config when using default profile"""
+        # Create config with default profile
+        default_profile = AIProfile(
+            name="default",
+            provider="openai",
+            model_name="gpt-3.5-turbo",
+            max_tokens=2000,
+            temperature=0.7
+        )
+        
+        config = NovaConfig(
+            profiles={"default": default_profile},
+            active_profile="default"
+        )
+        
+        active_config = config.get_active_ai_config()
+        assert active_config.provider == "openai"
+        assert active_config.model_name == "gpt-3.5-turbo"
+    
+    def test_get_active_ai_config_invalid_profile(self):
+        """Test getting active AI config with invalid profile"""
+        # Create config with only a default profile
+        default_profile = AIProfile(
+            name="default",
+            provider="anthropic",
+            model_name="claude-3-sonnet",
+            max_tokens=3000,
+            temperature=0.8
+        )
+        
+        config = NovaConfig(
+            profiles={"default": default_profile},
+            active_profile="nonexistent"
+        )
+        
+        # Should fall back to default profile
+        active_config = config.get_active_ai_config()
+        assert active_config.provider == "anthropic"
+        assert active_config.model_name == "claude-3-sonnet"
+    
+    def test_config_manager_adds_default_profiles(self):
+        """Test that ConfigManager adds default profiles"""
+        manager = ConfigManager()
+        config = manager._load_default_config()
+        
+        # Should have default profiles
+        assert len(config.profiles) > 0
+        assert "default" in config.profiles
+        assert "gpt4" in config.profiles
+        assert "claude" in config.profiles
+        assert "claude-opus" in config.profiles
+        assert "llama" in config.profiles
+        
+        # Verify default profile
+        default_profile = config.profiles["default"]
+        assert default_profile.provider == "openai"
+        assert default_profile.model_name == "gpt-3.5-turbo"
+        
+        # Verify other profile properties
+        gpt4_profile = config.profiles["gpt4"]
+        assert gpt4_profile.provider == "openai"
+        assert gpt4_profile.model_name == "gpt-4"
+        
+        claude_profile = config.profiles["claude"]
+        assert claude_profile.provider == "anthropic"
+        assert claude_profile.model_name == "claude-sonnet-4-20250514"
+        
+        claude_opus_profile = config.profiles["claude-opus"]
+        assert claude_opus_profile.provider == "anthropic"
+        assert claude_opus_profile.model_name == "claude-opus-4-20250514"
+        
+        llama_profile = config.profiles["llama"]
+        assert llama_profile.provider == "ollama"
+        assert llama_profile.model_name == "llama3.1"
+        
+        # Verify default active profile
+        assert config.active_profile == "default"
+    
+    def test_env_override_profile_selection(self, monkeypatch):
+        """Test that NOVA_PROFILE environment variable works"""
+        monkeypatch.setenv("NOVA_PROFILE", "claude")
+        
+        manager = ConfigManager()
+        config_data = manager._apply_env_overrides({})
+        
+        assert config_data["active_profile"] == "claude"

@@ -4,7 +4,7 @@ import pytest
 from datetime import datetime
 from pathlib import Path
 
-from nova.models.config import NovaConfig, AIModelConfig, ChatConfig
+from nova.models.config import NovaConfig, AIModelConfig, AIProfile, ChatConfig
 from nova.models.message import Message, MessageRole, Conversation
 
 
@@ -215,22 +215,31 @@ class TestConfigModels:
     
     def test_nova_config_composition(self):
         """Test that NovaConfig properly composes sub-configs"""
+        test_profile = AIProfile(
+            name="test",
+            provider="anthropic",
+            model_name="claude-3-sonnet"
+        )
+        
         config = NovaConfig(
-            ai_model=AIModelConfig(provider="anthropic"),
+            profiles={"test": test_profile},
+            active_profile="test",
             chat=ChatConfig(max_history_length=25)
         )
         
-        assert config.ai_model.provider == "anthropic"
+        active_ai_config = config.get_active_ai_config()
+        assert active_ai_config.provider == "anthropic"
         assert config.chat.max_history_length == 25
         # Defaults should still be applied
-        assert config.ai_model.model_name == "gpt-3.5-turbo"
+        assert active_ai_config.model_name == "claude-3-sonnet"
         assert config.chat.auto_save is True
     
     def test_nova_config_defaults(self):
         """Test NovaConfig creates default sub-configs"""
         config = NovaConfig()
         
-        assert isinstance(config.ai_model, AIModelConfig)
+        # Should have default profile fallback behavior
+        active_ai_config = config.get_active_ai_config()
         assert isinstance(config.chat, ChatConfig)
-        assert config.ai_model.provider == "openai"
+        assert active_ai_config.provider == "openai"
         assert config.chat.auto_save is True

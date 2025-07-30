@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 
 from nova.core.chat import ChatSession, ChatManager
 from nova.core.ai_client import AIError
-from nova.models.config import NovaConfig, AIModelConfig, ChatConfig
+from nova.models.config import NovaConfig, AIProfile, ChatConfig
 from nova.models.message import Conversation, MessageRole
 
 
@@ -17,8 +17,18 @@ class TestChatSession:
     
     def setup_method(self):
         """Set up test fixtures"""
+        test_profile = AIProfile(
+            name="test",
+            provider="openai",
+            api_key="test-key",
+            model_name="gpt-3.5-turbo",
+            max_tokens=2000,
+            temperature=0.7
+        )
+        
         self.config = NovaConfig(
-            ai_model=AIModelConfig(provider="openai", api_key="test-key"),
+            profiles={"test": test_profile},
+            active_profile="test",
             chat=ChatConfig(history_dir="~/.nova/test", max_history_length=10)
         )
     
@@ -35,7 +45,7 @@ class TestChatSession:
         assert len(session.conversation.messages) == 0
         
         mock_history_manager.assert_called_once_with(self.config.chat.history_dir)
-        mock_memory_manager.assert_called_once_with(self.config.ai_model)
+        mock_memory_manager.assert_called_once_with(self.config.get_active_ai_config())
     
     @patch('nova.core.chat.HistoryManager')
     @patch('nova.core.chat.MemoryManager')
@@ -189,8 +199,18 @@ class TestChatManager:
     
     def setup_method(self):
         """Set up test fixtures"""
+        test_profile = AIProfile(
+            name="test",
+            provider="openai",
+            api_key="test-key",
+            model_name="gpt-3.5-turbo",
+            max_tokens=2000,
+            temperature=0.7
+        )
+        
         self.config = NovaConfig(
-            ai_model=AIModelConfig(provider="openai", api_key="test-key"),
+            profiles={"test": test_profile},
+            active_profile="test",
             chat=ChatConfig(history_dir="~/.nova/test")
         )
     
@@ -206,7 +226,7 @@ class TestChatManager:
         assert manager.config == self.config
         mock_config_manager.load_config.assert_called_once_with(Path("test_config.yaml"))
         mock_history_manager.assert_called_once_with(self.config.chat.history_dir)
-        mock_memory_manager.assert_called_once_with(self.config.ai_model)
+        mock_memory_manager.assert_called_once_with(self.config.get_active_ai_config())
     
     @patch('nova.core.chat.config_manager')
     @patch('nova.core.chat.HistoryManager')

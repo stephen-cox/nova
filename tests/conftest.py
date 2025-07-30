@@ -8,7 +8,7 @@ from typing import Generator
 import pytest
 import yaml
 
-from nova.models.config import NovaConfig, AIModelConfig, ChatConfig
+from nova.models.config import NovaConfig, AIModelConfig, ChatConfig, AIProfile
 from nova.models.message import Conversation, Message, MessageRole
 
 
@@ -22,14 +22,18 @@ def temp_dir() -> Generator[Path, None, None]:
 @pytest.fixture
 def sample_config() -> NovaConfig:
     """Create a sample configuration for testing"""
+    test_profile = AIProfile(
+        name="test",
+        provider="openai",
+        model_name="gpt-3.5-turbo",
+        api_key="test-api-key",
+        max_tokens=1000,
+        temperature=0.5
+    )
+    
     return NovaConfig(
-        ai_model=AIModelConfig(
-            provider="openai",
-            model_name="gpt-3.5-turbo",
-            api_key="test-api-key",
-            max_tokens=1000,
-            temperature=0.5
-        ),
+        profiles={"test": test_profile},
+        active_profile="test",
         chat=ChatConfig(
             history_dir=Path("/tmp/test-history"),
             max_history_length=25,
@@ -42,13 +46,17 @@ def sample_config() -> NovaConfig:
 def sample_config_dict() -> dict:
     """Create a sample configuration dictionary for YAML testing"""
     return {
-        "ai_model": {
-            "provider": "openai",
-            "model_name": "gpt-3.5-turbo",
-            "api_key": "test-api-key",
-            "max_tokens": 1000,
-            "temperature": 0.5
+        "profiles": {
+            "test": {
+                "name": "test",
+                "provider": "openai",
+                "model_name": "gpt-3.5-turbo",
+                "api_key": "test-api-key",
+                "max_tokens": 1000,
+                "temperature": 0.5
+            }
         },
+        "active_profile": "test",
         "chat": {
             "history_dir": "/tmp/test-history",
             "max_history_length": 25,

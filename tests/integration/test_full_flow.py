@@ -78,7 +78,7 @@ class TestFullWorkflows:
         with open(custom_config, 'r') as f:
             config_data = yaml.safe_load(f)
         
-        config_data['ai_model']['model_name'] = 'gpt-4'
+        config_data['profiles']['default']['model_name'] = 'gpt-4'
         config_data['chat']['max_history_length'] = 100
         
         with open(custom_config, 'w') as f:

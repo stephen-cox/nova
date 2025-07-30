@@ -36,8 +36,9 @@ def version():
     console.print(f"Nova v{__version__}")
 
 
-@app.callback()
+@app.callback(invoke_without_command=True)
 def main(
+    ctx: typer.Context,
     config_file: Optional[Path] = typer.Option(
         None,
         "--config", "-c",
@@ -59,6 +60,11 @@ def main(
     # Store global options in app state for subcommands to access
     app.state.config_file = config_file
     app.state.verbose = verbose
+    
+    # If no command was provided, show help
+    if ctx.invoked_subcommand is None:
+        console.print(ctx.get_help())
+        raise typer.Exit()
 
 
 if __name__ == "__main__":

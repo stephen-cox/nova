@@ -1,34 +1,52 @@
 # Nova AI Assistant Default Configuration
 
-ai_model:
-  provider: "openai"  # openai, anthropic, ollama
-  model_name: "gpt-3.5-turbo"
-  # api_key: ""  # Set via environment variable NOVA_API_KEY (not needed for ollama)
-  # base_url: ""  # Custom API base URL (e.g., http://localhost:11434 for ollama)
-  max_tokens: 2000
-  temperature: 0.7
-
-# Example configurations for different providers:
-#
-# OpenAI:
-#   provider: "openai"
-#   model_name: "gpt-4"
-#   api_key: "your-openai-api-key" (or set OPENAI_API_KEY env var)
-#
-# Anthropic:
-#   provider: "anthropic"
-#   model_name: "claude-3-5-sonnet-20241022"
-#   api_key: "your-anthropic-api-key" (or set ANTHROPIC_API_KEY env var)
-#
-# Ollama (local):
-#   provider: "ollama"
-#   model_name: "llama2"  # Any model you have installed locally
-#   base_url: "http://localhost:11434"  # Default ollama URL
-
+# Chat behavior settings
 chat:
   history_dir: "~/.nova/history"
   max_history_length: 50  # Maximum messages to include in context
   auto_save: true
+
+# AI profiles for different models and providers
+profiles:
+  default:
+    name: "default"
+    provider: "openai"
+    model_name: "gpt-3.5-turbo"
+    max_tokens: 2000
+    temperature: 0.7
+    # api_key will be set via environment variables
+    
+  gpt4:
+    name: "gpt4"
+    provider: "openai"
+    model_name: "gpt-4"
+    max_tokens: 4000
+    temperature: 0.7
+    
+  claude:
+    name: "claude"
+    provider: "anthropic"
+    model_name: "claude-sonnet-4-20250514"
+    max_tokens: 4000
+    temperature: 0.7
+    
+  claude-opus:
+    name: "claude-opus"
+    provider: "anthropic"
+    model_name: "claude-opus-4-20250514"
+    max_tokens: 4000
+    temperature: 0.7
+    
+  llama:
+    name: "llama"
+    provider: "ollama"
+    model_name: "llama3.1"
+    base_url: "http://localhost:11434"
+    max_tokens: 2000
+    temperature: 0.7
+
+# Active profile (defaults to "default" if not specified)
+active_profile: "default"
 
 # Memory Management Features:
 # - Conversation summarization for long chats (/summarize command)
@@ -37,3 +55,10 @@ chat:
 # - Conversation tags and categorization (/tag command)
 # - Memory statistics and analysis (/stats command)
 # - Automatic suggestions for conversation organization
+
+# Environment Variables for API Keys:
+# - NOVA_API_KEY: General API key override
+# - OPENAI_API_KEY: OpenAI-specific API key
+# - ANTHROPIC_API_KEY: Anthropic-specific API key
+# - NOVA_PROFILE: Override active profile
+# - OLLAMA_HOST: Ollama server URL override

@@ -66,8 +66,9 @@ class TestConfigCLI:
             
             # Check content
             content = config_file.read_text()
-            assert "ai_model:" in content
+            assert "profiles:" in content
             assert "provider: openai" in content
+            assert "active_profile:" in content
             
         finally:
             os.chdir(original_cwd)
@@ -122,7 +123,7 @@ class TestConfigCLI:
         
         # Create config with API key
         config_with_key = sample_config_dict.copy()
-        config_with_key["ai_model"]["api_key"] = "secret-key-123"
+        config_with_key["profiles"]["test"]["api_key"] = "secret-key-123"
         
         config_file = temp_dir / "with-key.yaml"
         with open(config_file, 'w') as f:

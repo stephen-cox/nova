@@ -20,7 +20,7 @@ class ChatSession:
     def __init__(self, config: NovaConfig, conversation_id: Optional[str] = None):
         self.config = config
         self.history_manager = HistoryManager(config.chat.history_dir)
-        self.memory_manager = MemoryManager(config.ai_model)
+        self.memory_manager = MemoryManager(config.get_active_ai_config())
         
         if conversation_id:
             # Try to load existing conversation
@@ -94,7 +94,7 @@ class ChatSession:
 class ChatManager:
     """Manages chat sessions and history"""
     
-    def __init__(self, config_path: Optional[Path] = None):
+    def __init__(self, config_path: Optional[Path] = None, profile_override: Optional[str] = None):
         try:
             self.config = config_manager.load_config(config_path)
         except Exception as e:
@@ -102,13 +102,33 @@ class ChatManager:
             print_info("Using default configuration")
             self.config = config_manager._load_default_config()
         
+        # Apply profile override if specified
+        if profile_override:
+            if profile_override in self.config.profiles:
+                self.config.active_profile = profile_override
+                print_info(f"Using profile: {profile_override}")
+            else:
+                print_error(f"Profile '{profile_override}' not found")
+                print_info("Available profiles:")
+                for name in self.config.profiles.keys():
+                    print_info(f"  - {name}")
+                raise ValueError(f"Profile '{profile_override}' not found")
+        
         self.history_manager = HistoryManager(self.config.chat.history_dir)
-        self.memory_manager = MemoryManager(self.config.ai_model)
+        self.memory_manager = MemoryManager(self.config.get_active_ai_config())
     
     def start_interactive_chat(self, session_name: Optional[str] = None) -> None:
         """Start an interactive chat session"""
         
         print_success("Nova AI Research Assistant")
+        
+        # Show active AI configuration
+        active_config = self.config.get_active_ai_config()
+        if self.config.active_profile:
+            print_info(f"Active profile: {self.config.active_profile} ({active_config.provider}/{active_config.model_name})")
+        else:
+            print_info(f"Using direct config: {active_config.provider}/{active_config.model_name}")
+        
         print_info("Type 'exit', 'quit', or press Ctrl+C to end the session")
         print_info("Type '/help' for available commands")
         print()
@@ -287,8 +307,11 @@ class ChatManager:
         # Add system message if needed
         messages = []
         
+        # Get active AI config
+        active_config = self.config.get_active_ai_config()
+        
         # Add a system message to set context
-        if self.config.ai_model.provider in ["openai", "ollama"]:
+        if active_config.provider in ["openai", "ollama"]:
             system_message = "You are Nova, a helpful AI research assistant. Provide clear, accurate, and helpful responses."
             
             # Add conversation context info if we have summaries
@@ -310,7 +333,7 @@ class ChatManager:
         # Generate response using AI client
         try:
             response = generate_sync_response(
-                config=self.config.ai_model,
+                config=active_config,
                 messages=messages
             )
             return response.strip() if response else "I apologize, but I didn't generate a response. Please try again."

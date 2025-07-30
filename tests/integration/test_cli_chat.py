@@ -48,7 +48,7 @@ class TestChatCLI:
         result = self.runner.invoke(app, ["chat", "start"])
         
         assert result.exit_code == 0
-        mock_chat_manager.assert_called_once_with(None)
+        mock_chat_manager.assert_called_once_with(None, profile_override=None)
         mock_manager.start_interactive_chat.assert_called_once_with(None)
     
     @patch('nova.cli.chat.ChatManager')
@@ -76,7 +76,44 @@ class TestChatCLI:
         ])
         
         assert result.exit_code == 0
-        mock_chat_manager.assert_called_once_with(sample_config_yaml)
+        mock_chat_manager.assert_called_once_with(sample_config_yaml, profile_override=None)
+    
+    @patch('nova.cli.chat.ChatManager')
+    def test_chat_start_with_profile(self, mock_chat_manager):
+        """Test starting chat with a specific profile"""
+        mock_manager = MagicMock()
+        mock_chat_manager.return_value = mock_manager
+        mock_manager.start_interactive_chat.return_value = None
+        
+        result = self.runner.invoke(app, ["chat", "start", "--profile", "claude"])
+        
+        assert result.exit_code == 0
+        mock_chat_manager.assert_called_once_with(None, profile_override="claude")
+        mock_manager.start_interactive_chat.assert_called_once_with(None)
+    
+    @patch('nova.cli.chat.ChatManager')
+    def test_chat_start_with_profile_short_flag(self, mock_chat_manager):
+        """Test starting chat with profile using short flag"""
+        mock_manager = MagicMock()
+        mock_chat_manager.return_value = mock_manager
+        mock_manager.start_interactive_chat.return_value = None
+        
+        result = self.runner.invoke(app, ["chat", "start", "-p", "gpt4"])
+        
+        assert result.exit_code == 0
+        mock_chat_manager.assert_called_once_with(None, profile_override="gpt4")
+        mock_manager.start_interactive_chat.assert_called_once_with(None)
+    
+    @patch('nova.cli.chat.ChatManager')
+    def test_chat_start_invalid_profile(self, mock_chat_manager):
+        """Test chat start with invalid profile"""
+        from nova.core.config import ConfigError
+        mock_chat_manager.side_effect = ConfigError("Profile 'invalid' not found")
+        
+        result = self.runner.invoke(app, ["chat", "start", "--profile", "invalid"])
+        
+        assert result.exit_code == 1
+        assert "Failed to start chat" in result.stdout
     
     @patch('nova.cli.chat.ChatManager')
     def test_chat_start_error_handling(self, mock_chat_manager):
@@ -225,4 +262,4 @@ class TestCLIIntegration:
         assert result2.exit_code == 0
         
         # Should have been called with the custom config path
-        mock_chat_manager.assert_called_with(custom_config)
+        mock_chat_manager.assert_called_with(custom_config, profile_override=None)

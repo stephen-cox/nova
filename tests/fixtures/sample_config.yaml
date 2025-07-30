@@ -1,0 +1,12 @@
+# Sample configuration for testing
+
+ai_model:
+  provider: "openai"
+  model_name: "gpt-3.5-turbo"
+  max_tokens: 1000
+  temperature: 0.7
+
+chat:
+  history_dir: "~/.nova/test-history"
+  max_history_length: 30
+  auto_save: true

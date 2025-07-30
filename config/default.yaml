@@ -1,0 +1,39 @@
+# Nova AI Assistant Default Configuration
+
+ai_model:
+  provider: "openai"  # openai, anthropic, ollama
+  model_name: "gpt-3.5-turbo"
+  # api_key: ""  # Set via environment variable NOVA_API_KEY (not needed for ollama)
+  # base_url: ""  # Custom API base URL (e.g., http://localhost:11434 for ollama)
+  max_tokens: 2000
+  temperature: 0.7
+
+# Example configurations for different providers:
+#
+# OpenAI:
+#   provider: "openai"
+#   model_name: "gpt-4"
+#   api_key: "your-openai-api-key" (or set OPENAI_API_KEY env var)
+#
+# Anthropic:
+#   provider: "anthropic"
+#   model_name: "claude-3-5-sonnet-20241022"
+#   api_key: "your-anthropic-api-key" (or set ANTHROPIC_API_KEY env var)
+#
+# Ollama (local):
+#   provider: "ollama"
+#   model_name: "llama2"  # Any model you have installed locally
+#   base_url: "http://localhost:11434"  # Default ollama URL
+
+chat:
+  history_dir: "~/.nova/history"
+  max_history_length: 50  # Maximum messages to include in context
+  auto_save: true
+
+# Memory Management Features:
+# - Conversation summarization for long chats (/summarize command)
+# - Smart context optimization with token limit awareness
+# - Message importance scoring for better context retention
+# - Conversation tags and categorization (/tag command)
+# - Memory statistics and analysis (/stats command)
+# - Automatic suggestions for conversation organization

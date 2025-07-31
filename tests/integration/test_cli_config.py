@@ -2,6 +2,7 @@
 
 import re
 
+import yaml
 from typer.testing import CliRunner
 
 from nova.main import app
@@ -20,9 +21,11 @@ class TestConfigCLI:
         """Set up test runner"""
         self.runner = CliRunner()
 
-    def test_config_show_default(self):
+    def test_config_show_default(self, sample_config_yaml):
         """Test showing default configuration"""
-        result = self.runner.invoke(app, ["config", "show"])
+        result = self.runner.invoke(
+            app, ["config", "show", "--file", str(sample_config_yaml)]
+        )
 
         assert result.exit_code == 0
         assert "Current Configuration:" in result.stdout
@@ -141,13 +144,35 @@ class TestConfigCLI:
         assert "***" in result.stdout  # API key should be masked
         assert "secret-key-123" not in result.stdout  # Original key should not appear
 
-    def test_config_show_no_api_key(self, monkeypatch):
+    def test_config_show_no_api_key(self, monkeypatch, temp_dir):
         """Test showing config when no API key is set"""
+        # Create a config file without API keys
+        config_dict = {
+            "profiles": {
+                "test": {
+                    "name": "test",
+                    "provider": "openai",
+                    "model_name": "gpt-3.5-turbo",
+                    "max_tokens": 1000,
+                    "temperature": 0.5,
+                }
+            },
+            "active_profile": "test",
+            "chat": {
+                "history_dir": "/tmp/test-history",
+                "max_history_length": 25,
+                "auto_save": True,
+            },
+        }
+        config_path = temp_dir / "no-api-key-config.yaml"
+        with open(config_path, "w") as f:
+            yaml.dump(config_dict, f)
+
         # Clear all API key environment variables
         for key in ["NOVA_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"]:
             monkeypatch.delenv(key, raising=False)
 
-        result = self.runner.invoke(app, ["config", "show"])
+        result = self.runner.invoke(app, ["config", "show", "--file", str(config_path)])
 
         assert result.exit_code == 0
         assert "Not set" in result.stdout  # Should indicate API key not set

@@ -1,15 +1,15 @@
 """Shared test fixtures and configuration"""
 
 import tempfile
-from pathlib import Path
+from collections.abc import Generator
 from datetime import datetime
-from typing import Generator
+from pathlib import Path
 
 import pytest
 import yaml
 
-from nova.models.config import NovaConfig, AIModelConfig, ChatConfig, AIProfile
-from nova.models.message import Conversation, Message, MessageRole
+from nova.models.config import AIProfile, ChatConfig, NovaConfig
+from nova.models.message import Conversation, MessageRole
 
 
 @pytest.fixture
@@ -28,17 +28,15 @@ def sample_config() -> NovaConfig:
         model_name="gpt-3.5-turbo",
         api_key="test-api-key",
         max_tokens=1000,
-        temperature=0.5
+        temperature=0.5,
     )
-    
+
     return NovaConfig(
         profiles={"test": test_profile},
         active_profile="test",
         chat=ChatConfig(
-            history_dir=Path("/tmp/test-history"),
-            max_history_length=25,
-            auto_save=True
-        )
+            history_dir=Path("/tmp/test-history"), max_history_length=25, auto_save=True
+        ),
     )
 
 
@@ -53,15 +51,15 @@ def sample_config_dict() -> dict:
                 "model_name": "gpt-3.5-turbo",
                 "api_key": "test-api-key",
                 "max_tokens": 1000,
-                "temperature": 0.5
+                "temperature": 0.5,
             }
         },
         "active_profile": "test",
         "chat": {
             "history_dir": "/tmp/test-history",
             "max_history_length": 25,
-            "auto_save": True
-        }
+            "auto_save": True,
+        },
     }
 
 
@@ -69,7 +67,7 @@ def sample_config_dict() -> dict:
 def sample_config_yaml(temp_dir: Path, sample_config_dict: dict) -> Path:
     """Create a sample YAML config file"""
     config_path = temp_dir / "test-config.yaml"
-    with open(config_path, 'w') as f:
+    with open(config_path, "w") as f:
         yaml.dump(sample_config_dict, f)
     return config_path
 
@@ -81,14 +79,19 @@ def sample_conversation() -> Conversation:
         id="test-conv-123",
         title="Test Conversation",
         created_at=datetime(2024, 1, 1, 12, 0, 0),
-        updated_at=datetime(2024, 1, 1, 12, 30, 0)
+        updated_at=datetime(2024, 1, 1, 12, 30, 0),
     )
-    
+
     conv.add_message(MessageRole.USER, "Hello, how are you?")
-    conv.add_message(MessageRole.ASSISTANT, "I'm doing well, thank you! How can I help you today?")
+    conv.add_message(
+        MessageRole.ASSISTANT, "I'm doing well, thank you! How can I help you today?"
+    )
     conv.add_message(MessageRole.USER, "Can you explain Python decorators?")
-    conv.add_message(MessageRole.ASSISTANT, "Sure! Python decorators are a way to modify or enhance functions...")
-    
+    conv.add_message(
+        MessageRole.ASSISTANT,
+        "Sure! Python decorators are a way to modify or enhance functions...",
+    )
+
     return conv
 
 
@@ -145,7 +148,9 @@ def history_dir(temp_dir: Path) -> Path:
 @pytest.fixture
 def mock_env_vars(monkeypatch):
     """Mock environment variables for testing"""
+
     def _mock_env(**kwargs):
         for key, value in kwargs.items():
             monkeypatch.setenv(key, value)
+
     return _mock_env

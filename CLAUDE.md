@@ -47,6 +47,36 @@ Use these commands:
 - Run Python tools like Pytest: `uv run pytest` or `uv run ruff`
 - Launch a Python repl: `uv run python`
 
+## Code Quality Commands
+
+- Run all code quality checks: `uv run ruff check . && uv run ruff format --check . && uv run black --check . && uv run isort --check-only .`
+- Auto-fix code quality issues: `uv run ruff check . --fix && uv run ruff format . && uv run black . && uv run isort .`
+- Run linting only: `uv run ruff check .`
+- Run formatting only: `uv run ruff format .` or `uv run black .`
+- Sort imports: `uv run isort .`
+- Run pre-commit on all files: `uv run pre-commit run --all-files`
+
+## Code Style
+
+- PEP 8 naming (snake_case for functions/variables)
+- Class names in PascalCase
+- Constants in UPPER_SNAKE_CASE
+- Document with docstrings
+- Use f-strings for formatting
+
+## Git workflow
+
+- All changes must be made on a feature or bug fix branch, NEVER directly on main
+- Git branches are prefixed with feature/ or hotfix/ and followed by a brief description
+- feature/ branches are for new features and big changes. hotfix/ branches are for bug fixes and minor chnages
+- Once the feature or fix is complete create, commit the changes and create a pull request into the main branch
+- A feature or fix IS NOT complete until all tests and code quality checks are passing.
+- Create a detailed message of what changed. Focus on the high level description of
+  the problem it tries to solve, and how it is solved. Don't go into the specifics of the
+  code unless it adds clarity.
+- NEVER ever mention a `co-authored-by` or similar aspects. In particular, never
+  mention the tool used to create the commit message or PR.
+
 ## Project Architecture
 
 **Modular Structure:**
@@ -76,7 +106,7 @@ Configuration follows this precedence (highest to lowest):
 - Provider: `openai`, Model: `gpt-4`, `gpt-3.5-turbo`, etc.
 
 **Anthropic:**
-- Set `ANTHROPIC_API_KEY` environment variable  
+- Set `ANTHROPIC_API_KEY` environment variable
 - Provider: `anthropic`, Model: `claude-3-5-sonnet-20241022`, etc.
 
 **Ollama (Local):**

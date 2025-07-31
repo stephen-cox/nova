@@ -1,8 +1,5 @@
 """Chat command handlers"""
 
-from pathlib import Path
-from typing import Optional
-
 import typer
 from rich.console import Console
 
@@ -15,27 +12,24 @@ console = Console()
 
 @chat_app.command("start")
 def start_chat(
-    session_name: Optional[str] = typer.Argument(
-        None,
-        help="Session ID to continue or name for new session"
+    session_name: str | None = typer.Argument(
+        None, help="Session ID to continue or name for new session"
     ),
-    profile: Optional[str] = typer.Option(
-        None,
-        "--profile", "-p",
-        help="AI profile to use for this chat session"
+    profile: str | None = typer.Option(
+        None, "--profile", "-p", help="AI profile to use for this chat session"
     ),
 ):
     """Start a new chat session or continue an existing one"""
     try:
         # Import here to avoid circular import
         from nova.main import app
-        
+
         chat_manager = ChatManager(app.state.config_file, profile_override=profile)
         chat_manager.start_interactive_chat(session_name)
-        
+
     except Exception as e:
         print_error(f"Failed to start chat: {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @chat_app.command("list")
@@ -44,13 +38,13 @@ def list_sessions():
     try:
         # Import here to avoid circular import
         from nova.main import app
-        
+
         chat_manager = ChatManager(app.state.config_file)
         chat_manager.list_conversations()
-        
+
     except Exception as e:
         print_error(f"Failed to list sessions: {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @chat_app.callback(invoke_without_command=True)

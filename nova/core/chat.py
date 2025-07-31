@@ -65,8 +65,11 @@ class ChatSession:
         """Add a system message to the conversation"""
         self.conversation.add_message(MessageRole.SYSTEM, content)
 
-    def save_conversation(self, filepath: Path | None = None) -> Path:
-        """Save the conversation to disk"""
+    def save_conversation(self, filepath: Path | None = None) -> Path | None:
+        """Save the conversation to disk (only if it has messages)"""
+        if not self.conversation.messages:
+            # Don't save empty conversations
+            return None
         saved_path = self.history_manager.save_conversation(self.conversation, filepath)
         return saved_path
 
@@ -136,7 +139,7 @@ class ChatManager:
                 f"Using direct config: {active_config.provider}/{active_config.model_name}"
             )
 
-        print_info("Type 'exit', 'quit', or press Ctrl+C to end the session")
+        print_info("Type '/exit', '/quit', or press Ctrl+C to end the session")
         print_info("Type '/help' for available commands")
         print()
 
@@ -164,11 +167,11 @@ class ChatManager:
                     continue
 
                 # Handle commands
-                if user_input.lower() in ["exit", "quit"]:
-                    print("Goodbye!")
-                    break
-
                 if user_input.startswith("/"):
+                    # Handle /exit and /quit commands
+                    if user_input.lower() in ["/exit", "/quit"]:
+                        print("Goodbye!")
+                        break
                     self._handle_command(user_input, session)
                     continue
 
@@ -207,10 +210,11 @@ class ChatManager:
             print_error(f"Chat session error: {e}")
 
         finally:
-            # Save conversation
+            # Save conversation (only if it has messages)
             try:
                 saved_path = session.save_conversation()
-                print_success(f"Conversation saved to: {saved_path}")
+                if saved_path:
+                    print_success(f"Conversation saved to: {saved_path}")
             except Exception as e:
                 print_error(f"Could not save conversation: {e}")
 
@@ -230,7 +234,7 @@ class ChatManager:
             print("  /stats    - Show memory and conversation statistics")
             print("  /tag <tag> - Add tag to conversation")
             print("  /tags     - Show conversation tags")
-            print("  exit, quit - End session")
+            print("  /exit, /quit - End session")
 
         elif cmd == "/history":
             session.print_conversation_history()
@@ -238,7 +242,10 @@ class ChatManager:
         elif cmd == "/save":
             try:
                 saved_path = session.save_conversation()
-                print_success(f"Saved to: {saved_path}")
+                if saved_path:
+                    print_success(f"Saved to: {saved_path}")
+                else:
+                    print_info("No messages to save - conversation is empty")
             except Exception as e:
                 print_error(f"Save failed: {e}")
 

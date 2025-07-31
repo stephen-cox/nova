@@ -146,7 +146,12 @@ class TestChatSession:
     @patch("nova.core.chat.MemoryManager")
     def test_save_conversation(self, mock_memory_manager, mock_history_manager):
         """Test manual conversation saving"""
-        session = ChatSession(self.config)
+        # Create config with auto-save disabled for this test
+        config_no_autosave = self.config.model_copy()
+        config_no_autosave.chat.auto_save = False
+        session = ChatSession(config_no_autosave)
+        # Add a message so the conversation is not empty
+        session.add_user_message("Test message")
         mock_history_instance = mock_history_manager.return_value
         mock_history_instance.save_conversation.return_value = Path("saved.md")
 
@@ -156,6 +161,20 @@ class TestChatSession:
         mock_history_instance.save_conversation.assert_called_once_with(
             session.conversation, None
         )
+
+    @patch("nova.core.chat.HistoryManager")
+    @patch("nova.core.chat.MemoryManager")
+    def test_save_empty_conversation(self, mock_memory_manager, mock_history_manager):
+        """Test that empty conversations are not saved"""
+        config_no_autosave = self.config.model_copy()
+        config_no_autosave.chat.auto_save = False
+        session = ChatSession(config_no_autosave)
+        mock_history_instance = mock_history_manager.return_value
+
+        result = session.save_conversation()
+
+        assert result is None
+        mock_history_instance.save_conversation.assert_not_called()
 
     @patch("nova.core.chat.HistoryManager")
     @patch("nova.core.chat.MemoryManager")
@@ -292,7 +311,7 @@ class TestChatManager:
         mock_session.conversation.id = "test123"
         mock_chat_session.return_value = mock_session
         mock_generate_ai.return_value = "AI response"
-        mock_input.side_effect = ["Hello", "exit"]
+        mock_input.side_effect = ["Hello", "/exit"]
 
         manager = ChatManager()
         manager.start_interactive_chat()
@@ -349,7 +368,7 @@ class TestChatManager:
         mock_config_manager.load_config.return_value = self.config
         mock_session = MagicMock()
         mock_chat_session.return_value = mock_session
-        mock_input.side_effect = ["/help", "exit"]
+        mock_input.side_effect = ["/help", "/exit"]
 
         manager = ChatManager()
         manager.start_interactive_chat()
@@ -425,6 +444,32 @@ class TestChatManager:
 
         mock_session.save_conversation.assert_called_once()
         mock_print_success.assert_called_once_with("Saved to: saved.md")
+
+    @patch("nova.core.chat.ChatSession")
+    @patch("nova.core.chat.config_manager")
+    @patch("nova.core.chat.HistoryManager")
+    @patch("nova.core.chat.MemoryManager")
+    @patch("nova.core.chat.print_info")
+    def test_handle_save_command_empty_conversation(
+        self,
+        mock_print_info,
+        mock_memory_manager,
+        mock_history_manager,
+        mock_config_manager,
+        mock_chat_session,
+    ):
+        """Test /save command handling for empty conversation"""
+        mock_config_manager.load_config.return_value = self.config
+        mock_session = MagicMock()
+        mock_session.save_conversation.return_value = None  # Empty conversation
+
+        manager = ChatManager()
+        manager._handle_command("/save", mock_session)
+
+        mock_session.save_conversation.assert_called_once()
+        mock_print_info.assert_called_once_with(
+            "No messages to save - conversation is empty"
+        )
 
     @patch("nova.core.chat.ChatSession")
     @patch("nova.core.chat.config_manager")
@@ -738,3 +783,69 @@ class TestChatManager:
         mock_print_info.assert_any_call("Title: Test Chat Session")
         mock_print_info.assert_any_call("Last updated: 2025-07-31 12:00")
         mock_start_chat.assert_called_once_with("test-session")
+
+    @patch("nova.core.chat.ChatSession")
+    @patch("nova.core.chat.config_manager")
+    @patch("nova.core.chat.HistoryManager")
+    @patch("nova.core.chat.MemoryManager")
+    @patch("builtins.input")
+    @patch("builtins.print")
+    def test_interactive_chat_slash_exit_commands(
+        self,
+        mock_print,
+        mock_input,
+        mock_memory_manager,
+        mock_history_manager,
+        mock_config_manager,
+        mock_chat_session,
+    ):
+        """Test that /exit and /quit commands work"""
+        # Test /exit command
+        mock_config_manager.load_config.return_value = self.config
+        mock_session = MagicMock()
+        mock_chat_session.return_value = mock_session
+        mock_input.side_effect = ["/exit"]
+
+        manager = ChatManager()
+        manager.start_interactive_chat()
+
+        # Should print goodbye and exit
+        mock_print.assert_called_with("Goodbye!")
+
+        # Test /quit command
+        mock_print.reset_mock()
+        mock_input.side_effect = ["/quit"]
+
+        manager.start_interactive_chat()
+        mock_print.assert_called_with("Goodbye!")
+
+    @patch("nova.core.chat.ChatSession")
+    @patch("nova.core.chat.config_manager")
+    @patch("nova.core.chat.HistoryManager")
+    @patch("nova.core.chat.MemoryManager")
+    @patch("builtins.input")
+    @patch("nova.core.chat.ChatManager._generate_ai_response")
+    def test_non_slash_exit_treated_as_user_input(
+        self,
+        mock_generate_ai,
+        mock_input,
+        mock_memory_manager,
+        mock_history_manager,
+        mock_config_manager,
+        mock_chat_session,
+    ):
+        """Test that non-slash 'exit' and 'quit' are treated as regular user input"""
+        mock_config_manager.load_config.return_value = self.config
+        mock_session = MagicMock()
+        mock_session.conversation.id = "test123"
+        mock_chat_session.return_value = mock_session
+        mock_generate_ai.return_value = "AI response"
+        mock_input.side_effect = ["exit", "/exit"]
+
+        manager = ChatManager()
+        manager.start_interactive_chat()
+
+        # 'exit' without slash should be treated as user input
+        mock_session.add_user_message.assert_called_with("exit")
+        mock_generate_ai.assert_called_once()
+        mock_session.add_assistant_message.assert_called_once_with("AI response")

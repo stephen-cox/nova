@@ -28,7 +28,6 @@ class HistoryManager:
         # Generate intelligent title if none exists
         if not conversation.title and conversation.messages:
             conversation.title = self._generate_content_based_title(conversation)
-
         if not filename:
             # Generate filename from conversation ID and timestamp
             timestamp = conversation.created_at.strftime("%Y%m%d_%H%M%S")

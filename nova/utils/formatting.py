@@ -3,38 +3,40 @@
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.text import Text
 
 console = Console()
 
 
 def print_message(role: str, content: str, timestamp: str = None):
     """Print a formatted chat message"""
-    
+
     if role.lower() == "user":
         color = "blue"
         icon = "👤"
+        display_role = role.title()
     elif role.lower() == "assistant":
         color = "green"
         icon = "🤖"
+        display_role = "Nova"
     else:
         color = "yellow"
         icon = "ℹ️"
-    
+        display_role = role.title()
+
     # Create header
-    header = f"{icon} {role.title()}"
+    header = f"{icon} {display_role}"
     if timestamp:
         header += f" ({timestamp})"
-    
+
     # Create panel with message
     panel = Panel(
         Markdown(content),
         title=header,
         title_align="left",
         border_style=color,
-        padding=(0, 1)
+        padding=(0, 1),
     )
-    
+
     console.print(panel)
 
 
@@ -60,7 +62,7 @@ def print_info(message: str):
 
 def format_file_size(size_bytes: int) -> str:
     """Format file size in human readable format"""
-    for unit in ['B', 'KB', 'MB', 'GB']:
+    for unit in ["B", "KB", "MB", "GB"]:
         if size_bytes < 1024:
             return f"{size_bytes:.1f} {unit}"
         size_bytes /= 1024

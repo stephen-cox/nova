@@ -1,7 +1,6 @@
 """Main entry point for Nova CLI application"""
 
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -17,10 +16,12 @@ app = typer.Typer(
 
 console = Console()
 
+
 # Global state for sharing between commands
 class AppState:
-    config_file: Optional[Path] = None
+    config_file: Path | None = None
     verbose: bool = False
+
 
 app.state = AppState()
 
@@ -33,15 +34,17 @@ app.add_typer(config_app, name="config", help="Configuration commands")
 def version():
     """Show Nova version"""
     from nova import __version__
+
     console.print(f"Nova v{__version__}")
 
 
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
-    config_file: Optional[Path] = typer.Option(
+    config_file: Path | None = typer.Option(
         None,
-        "--config", "-c",
+        "--config",
+        "-c",
         help="Path to configuration file",
         exists=True,
         file_okay=True,
@@ -49,18 +52,19 @@ def main(
     ),
     verbose: bool = typer.Option(
         False,
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         help="Enable verbose output",
     ),
 ):
     """Nova - AI Research Assistant
-    
+
     A configurable CLI chatbot with conversation history and memory.
     """
     # Store global options in app state for subcommands to access
     app.state.config_file = config_file
     app.state.verbose = verbose
-    
+
     # If no command was provided, show help
     if ctx.invoked_subcommand is None:
         console.print(ctx.get_help())

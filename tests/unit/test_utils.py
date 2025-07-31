@@ -169,7 +169,7 @@ class TestFormattingUtils:
 
         mock_console.print.assert_called_once()
         panel_arg = mock_console.print.call_args[0][0]
-        assert "🤖 Assistant (12:34:57)" in str(panel_arg.title)
+        assert "🤖 Nova (12:34:57)" in str(panel_arg.title)
         assert panel_arg.border_style == "green"
 
     @patch("nova.utils.formatting.console")

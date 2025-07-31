@@ -25,6 +25,9 @@ class HistoryManager:
     ) -> Path:
         """Save conversation to markdown file"""
 
+        # Generate intelligent title if none exists
+        if not conversation.title and conversation.messages:
+            conversation.title = self._generate_content_based_title(conversation)
         if not filename:
             # Generate filename from conversation ID and timestamp
             timestamp = conversation.created_at.strftime("%Y%m%d_%H%M%S")
@@ -86,6 +89,8 @@ class HistoryManager:
                         # Extract title from first user message or use first content
                         if line.startswith("**User:**"):
                             title = line[9:].strip()[:50]
+                        elif line.startswith("# "):
+                            title = line[2:].strip()[:50]  # Remove '# ' prefix
                         else:
                             title = line[:50]
                         break
@@ -99,6 +104,11 @@ class HistoryManager:
         # Sort by timestamp (newest first)
         conversations.sort(key=lambda x: x[2], reverse=True)
         return conversations
+
+    def get_most_recent_conversation(self) -> tuple[Path, str, datetime] | None:
+        """Get the most recent conversation file"""
+        conversations = self.list_conversations()
+        return conversations[0] if conversations else None
 
     def _conversation_to_markdown(self, conversation: Conversation) -> str:
         """Convert conversation to markdown format"""
@@ -131,7 +141,7 @@ class HistoryManager:
             if message.role == MessageRole.USER:
                 lines.append(f"## User ({timestamp})")
             elif message.role == MessageRole.ASSISTANT:
-                lines.append(f"## Assistant ({timestamp})")
+                lines.append(f"## Nova ({timestamp})")
             elif message.role == MessageRole.SYSTEM:
                 lines.append(f"## System ({timestamp})")
 
@@ -140,6 +150,106 @@ class HistoryManager:
             lines.append("")
 
         return "\n".join(lines)
+
+    def _generate_content_based_title(self, conversation: Conversation) -> str:
+        """Generate a meaningful title based on conversation content"""
+        if not conversation.messages:
+            return f"Chat {conversation.created_at.strftime('%Y-%m-%d %H:%M')}"
+
+        # Get first user message to analyze
+        first_user_message = None
+        for message in conversation.messages:
+            if message.role == MessageRole.USER:
+                first_user_message = message
+                break
+
+        if not first_user_message:
+            return f"Chat {conversation.created_at.strftime('%Y-%m-%d %H:%M')}"
+
+        content = first_user_message.content.strip()
+
+        # Remove common prefixes and clean up
+        content = re.sub(
+            r"^(please|can you|could you|help me|I need|I want to)\s+",
+            "",
+            content,
+            flags=re.IGNORECASE,
+        )
+        content = re.sub(r"^(to\s+)", "", content, flags=re.IGNORECASE)
+
+        # Extract key topics and actions
+        title = self._extract_meaningful_title(content)
+
+        # Ensure title is reasonable length
+        if len(title) > 60:
+            title = title[:57] + "..."
+
+        # Capitalize first letter
+        title = title[0].upper() + title[1:] if title else title
+
+        return title or f"Chat {conversation.created_at.strftime('%Y-%m-%d %H:%M')}"
+
+    def _extract_meaningful_title(self, content: str) -> str:
+        """Extract meaningful title from content using patterns"""
+        # Common patterns for different types of requests
+        patterns = [
+            # Programming/code related
+            (
+                r"(implement|create|build|develop|write|code|program)\s+(.+?)(?:\?|$|\.|\n)",
+                r"\1 \2",
+            ),
+            (r"(fix|debug|solve|resolve)\s+(.+?)(?:\?|$|\.|\n)", r"Fix \2"),
+            (r"(optimize|improve|refactor)\s+(.+?)(?:\?|$|\.|\n)", r"Optimize \2"),
+            (r"(test|unit test|testing)\s+(.+?)(?:\?|$|\.|\n)", r"Test \2"),
+            # Analysis/research
+            (r"(analyze|review|examine|study)\s+(.+?)(?:\?|$|\.|\n)", r"Analyze \2"),
+            (r"(explain|describe|tell me about)\s+(.+?)(?:\?|$|\.|\n)", r"Explain \2"),
+            (r"(compare|contrast)\s+(.+?)(?:\?|$|\.|\n)", r"Compare \2"),
+            # Questions
+            (r"(what is|what are|what's)\s+(.+?)(?:\?|$|\.|\n)", r"What is \2"),
+            (r"(how to|how do|how can)\s+(.+?)(?:\?|$|\.|\n)", r"How to \2"),
+            (r"(why does|why is|why do)\s+(.+?)(?:\?|$|\.|\n)", r"Why \2"),
+            (r"(when should|when to|when is)\s+(.+?)(?:\?|$|\.|\n)", r"When to \2"),
+            (r"(where is|where can|where to)\s+(.+?)(?:\?|$|\.|\n)", r"Where to \2"),
+            # General assistance
+            (r"(help with|help me)\s+(.+?)(?:\?|$|\.|\n)", r"Help with \2"),
+            (r"(show me|demonstrate)\s+(.+?)(?:\?|$|\.|\n)", r"Show \2"),
+            (r"(find|search for|look for)\s+(.+?)(?:\?|$|\.|\n)", r"Find \2"),
+        ]
+
+        content_lower = content.lower()
+
+        for pattern, replacement in patterns:
+            match = re.search(pattern, content_lower)
+            if match:
+                # Apply replacement and clean up
+                title = re.sub(pattern, replacement, content_lower).strip()
+                # Remove extra whitespace and clean up
+                title = re.sub(r"\s+", " ", title)
+                title = title.replace("\n", " ").strip()
+                return title
+
+        # Fallback: use first meaningful sentence/phrase
+        sentences = re.split(r"[.!?]", content)
+        first_sentence = sentences[0].strip() if sentences else content
+
+        # Remove very short or generic phrases
+        if len(first_sentence) < 10 or first_sentence.lower() in [
+            "hi",
+            "hello",
+            "hey",
+            "help",
+        ]:
+            # Look for the next sentence
+            for sentence in sentences[1:]:
+                sentence = sentence.strip()
+                if len(sentence) > 10:
+                    first_sentence = sentence
+                    break
+
+        # Clean up and return
+        first_sentence = re.sub(r"\s+", " ", first_sentence).strip()
+        return first_sentence
 
     def _markdown_to_conversation(
         self, content: str, conversation_id: str
@@ -200,7 +310,7 @@ class HistoryManager:
                 header = line[3:].strip()
                 if header.startswith("User"):
                     current_role = MessageRole.USER
-                elif header.startswith("Assistant"):
+                elif header.startswith("Assistant") or header.startswith("Nova"):
                     current_role = MessageRole.ASSISTANT
                 elif header.startswith("System"):
                     current_role = MessageRole.SYSTEM

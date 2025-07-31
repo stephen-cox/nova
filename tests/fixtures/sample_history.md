@@ -10,7 +10,7 @@
 
 What is the capital of France?
 
-## Assistant (10:01:00)
+## Nova (10:01:00)
 
 The capital of France is Paris. It's a beautiful city known for its art, culture, and iconic landmarks like the Eiffel Tower and the Louvre Museum.
 
@@ -18,7 +18,7 @@ The capital of France is Paris. It's a beautiful city known for its art, culture
 
 Tell me more about the Eiffel Tower.
 
-## Assistant (10:07:00)
+## Nova (10:07:00)
 
 The Eiffel Tower is a wrought-iron lattice tower located on the Champ de Mars in Paris. Key facts:
 
@@ -33,6 +33,6 @@ It has become a global cultural icon of France and one of the most recognizable 
 
 Thanks for the information!
 
-## Assistant (10:11:00)
+## Nova (10:11:00)
 
 You're welcome! Feel free to ask if you have any other questions about Paris, France, or anything else you'd like to know about.

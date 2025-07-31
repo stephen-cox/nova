@@ -142,7 +142,7 @@ class TestHistoryManager:
 
         # Check messages
         assert "## User" in markdown
-        assert "## Assistant" in markdown
+        assert "## Nova" in markdown
         assert "Hello, how are you?" in markdown
         assert "I'm doing well, thank you!" in markdown
 
@@ -211,3 +211,178 @@ class TestHistoryManager:
         assert "/" not in saved_path.name
         assert "\\" not in saved_path.name
         assert ":" not in saved_path.name
+
+    def test_generate_content_based_title_programming(self, history_dir):
+        """Test title generation for programming-related content"""
+        manager = HistoryManager(history_dir)
+
+        test_cases = [
+            (
+                "Can you help me implement a user authentication system?",
+                "Implement a user authentication system",
+            ),
+            ("I need to fix this bug in my code", "Fix this bug in my code"),
+            ("Please optimize my database queries", "Optimize my database queries"),
+            (
+                "How to create a REST API with Python?",
+                "How to create a REST API with Python",
+            ),
+            (
+                "What is object-oriented programming?",
+                "What is object-oriented programming",
+            ),
+        ]
+
+        for content, expected_start in test_cases:
+            conversation = Conversation(id="test", title=None)
+            conversation.add_message(MessageRole.USER, content)
+
+            title = manager._generate_content_based_title(conversation)
+            assert (
+                title.startswith(expected_start)
+                or expected_start.lower() in title.lower()
+            )
+
+    def test_generate_content_based_title_questions(self, history_dir):
+        """Test title generation for question-based content"""
+        manager = HistoryManager(history_dir)
+
+        test_cases = [
+            ("Why does my application crash on startup?", "Why"),
+            ("When should I use async/await in Python?", "When to"),
+            ("Where can I find documentation for this API?", "Where to"),
+            ("Explain the difference between SQL and NoSQL", "Explain"),
+        ]
+
+        for content, expected_word in test_cases:
+            conversation = Conversation(id="test", title=None)
+            conversation.add_message(MessageRole.USER, content)
+
+            title = manager._generate_content_based_title(conversation)
+            assert expected_word.lower() in title.lower()
+
+    def test_generate_content_based_title_fallback(self, history_dir):
+        """Test title generation fallback for generic content"""
+        manager = HistoryManager(history_dir)
+
+        conversation = Conversation(id="test", title=None)
+        conversation.add_message(
+            MessageRole.USER, "Hi there, I hope you're having a great day!"
+        )
+
+        title = manager._generate_content_based_title(conversation)
+        assert "Hi there" in title and "great day" in title
+
+    def test_generate_content_based_title_no_messages(self, history_dir):
+        """Test title generation when no messages exist"""
+        manager = HistoryManager(history_dir)
+
+        conversation = Conversation(id="test", title=None)
+
+        title = manager._generate_content_based_title(conversation)
+        assert title.startswith("Chat 2025")  # Should use timestamp format
+
+    def test_generate_content_based_title_no_user_messages(self, history_dir):
+        """Test title generation when no user messages exist"""
+        manager = HistoryManager(history_dir)
+
+        conversation = Conversation(id="test", title=None)
+        conversation.add_message(MessageRole.ASSISTANT, "Hello! How can I help you?")
+
+        title = manager._generate_content_based_title(conversation)
+        assert title.startswith("Chat 2025")  # Should use timestamp format
+
+    def test_generate_content_based_title_length_limit(self, history_dir):
+        """Test that titles are limited to reasonable length"""
+        manager = HistoryManager(history_dir)
+
+        long_content = "Please help me implement a very comprehensive user authentication and authorization system with role-based access control, multi-factor authentication, password reset functionality, email verification, session management, and secure token handling for a large-scale enterprise application"
+
+        conversation = Conversation(id="test", title=None)
+        conversation.add_message(MessageRole.USER, long_content)
+
+        title = manager._generate_content_based_title(conversation)
+        assert len(title) <= 60
+        assert title.endswith("...") if len(title) == 60 else True
+
+    def test_save_conversation_auto_generates_title(self, history_dir):
+        """Test that saving a conversation without title auto-generates one"""
+        manager = HistoryManager(history_dir)
+
+        conversation = Conversation(id="test", title=None)
+        conversation.add_message(
+            MessageRole.USER, "How to implement authentication in Flask?"
+        )
+
+        # Title should be None initially
+        assert conversation.title is None
+
+        # Save should generate a title
+        manager.save_conversation(conversation)
+
+        # Title should now be generated
+        assert conversation.title is not None
+        assert "authentication" in conversation.title.lower()
+        assert "flask" in conversation.title.lower()
+
+    def test_save_conversation_preserves_existing_title(self, history_dir):
+        """Test that saving preserves existing title"""
+        manager = HistoryManager(history_dir)
+
+        conversation = Conversation(id="test", title="My Custom Title")
+        conversation.add_message(MessageRole.USER, "This should not change the title")
+
+        manager.save_conversation(conversation)
+
+        # Title should remain unchanged
+        assert conversation.title == "My Custom Title"
+
+    def test_get_most_recent_conversation_empty(self, history_dir):
+        """Test getting most recent conversation when no conversations exist"""
+        manager = HistoryManager(history_dir)
+
+        result = manager.get_most_recent_conversation()
+
+        assert result is None
+
+    def test_get_most_recent_conversation_single(self, history_dir):
+        """Test getting most recent conversation with single conversation"""
+        manager = HistoryManager(history_dir)
+
+        conversation = Conversation(id="test-conv", title="Test Conversation")
+        conversation.add_message(MessageRole.USER, "Hello")
+        saved_path = manager.save_conversation(conversation)
+
+        result = manager.get_most_recent_conversation()
+
+        assert result is not None
+        filepath, title, timestamp = result
+        assert filepath == saved_path
+        assert title == "Test Conversation"
+        assert isinstance(timestamp, datetime)
+
+    def test_get_most_recent_conversation_multiple(self, history_dir):
+        """Test getting most recent conversation with multiple conversations"""
+        import time
+
+        manager = HistoryManager(history_dir)
+
+        # Create first conversation
+        conv1 = Conversation(id="conv-1", title="First Conversation")
+        conv1.add_message(MessageRole.USER, "First message")
+        manager.save_conversation(conv1)
+
+        # Wait to ensure different timestamps (need at least 1 second for filename timestamp precision)
+        time.sleep(1.1)
+
+        # Create second conversation (more recent)
+        conv2 = Conversation(id="conv-2", title="Second Conversation")
+        conv2.add_message(MessageRole.USER, "Second message")
+        saved_path2 = manager.save_conversation(conv2)
+
+        result = manager.get_most_recent_conversation()
+
+        assert result is not None
+        filepath, title, timestamp = result
+        assert filepath == saved_path2
+        assert title == "Second Conversation"

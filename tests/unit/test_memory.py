@@ -30,7 +30,7 @@ class TestMemoryManager:
             )
             self.conversation.add_message(
                 MessageRole.ASSISTANT,
-                f"Assistant response {i + 1} with helpful information",
+                f"Nova response {i + 1} with helpful information",
             )
 
     def test_should_summarize_conversation_empty(self):

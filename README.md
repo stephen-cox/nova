@@ -7,9 +7,11 @@ Nova is a configurable command-line AI assistant that provides multi-provider AI
 - **Multi-provider AI Integration**: Support for OpenAI, Anthropic, and Ollama
 - **Profile-based Configuration**: Easy switching between different AI models and providers
 - **Interactive CLI**: Built with Typer for a rich command-line experience
-- **Persistent Chat History**: Conversations saved as markdown files
+- **Intelligent Chat History**: Conversations saved as markdown files with smart content-based titles
+- **Session Management**: Resume your most recent conversation with a single command
 - **Flexible Configuration**: YAML-based configuration with environment variable support
 - **Memory Management**: Smart context optimization and conversation summarization
+- **Nova Branding**: Personalized AI responses clearly labeled as "Nova" throughout the interface
 - **Modular Architecture**: Extensible design for easy feature additions
 - **Rich Output**: Beautiful console output with Rich library integration
 
@@ -69,7 +71,11 @@ uv run nova chat start --profile llama  # Use Llama profile
 ### 3. Start Chatting
 
 ```bash
+# Start a new chat session
 uv run nova chat start
+
+# Or resume your most recent conversation
+uv run nova chat resume
 ```
 
 ## Usage
@@ -81,10 +87,22 @@ uv run nova chat start
 # Start interactive chat session (uses default profile)
 uv run nova chat start
 
+# Resume the most recent chat session
+uv run nova chat resume
+
+# Resume with a specific profile
+uv run nova chat resume --profile claude
+
 # Start chat with specific profile
 uv run nova chat start --profile gpt4
 uv run nova chat start --profile claude
 uv run nova chat start --profile llama
+
+# Continue a specific conversation by session ID
+uv run nova chat start session_id
+
+# List all saved conversations
+uv run nova chat list
 
 # Start chat with custom config file
 uv run nova chat start --config my-config.yaml
@@ -128,10 +146,44 @@ While in a chat session, you can use these commands:
 - `/save` - Save current conversation
 - `/history` - View conversation history
 - `/clear` - Clear current conversation
+- `/title <title>` - Set a custom title for the conversation
 - `/exit` or `/quit` - Exit chat session
 - `/summarize` - Summarize conversation
 - `/tag <tags>` - Add tags to conversation
 - `/stats` - Show memory statistics
+
+**Note**: Conversations without manually set titles will automatically generate intelligent titles based on the content of your first message.
+
+## Enhanced Features
+
+### Intelligent Title Generation
+
+Nova automatically generates meaningful titles for your conversations based on the content of your first message. This makes it easy to find and identify specific conversations later.
+
+**Examples:**
+- `"How do I implement user authentication in Django?"` → `"How to implement user authentication in django"`
+- `"Can you help me fix this memory leak?"` → `"Help me fix this memory leak"`
+- `"Explain the difference between REST and GraphQL APIs"` → `"Explain the difference between rest and graphql apis"`
+
+### Session Management
+
+**Resume Recent Conversations**
+```bash
+# Resume your most recent chat session
+uv run nova chat resume
+
+# Resume with a different AI profile
+uv run nova chat resume --profile claude
+```
+
+**List and Continue Specific Sessions**
+```bash
+# See all your saved conversations
+uv run nova chat list
+
+# Continue a specific conversation by session ID
+uv run nova chat start abc123def
+```
 
 ## Configuration
 
@@ -172,28 +224,28 @@ profiles:
     model_name: "gpt-3.5-turbo"
     max_tokens: 2000
     temperature: 0.7
-    
+
   gpt4:
     name: "gpt4"
     provider: "openai"
     model_name: "gpt-4"
     max_tokens: 4000
     temperature: 0.7
-    
+
   claude:
     name: "claude"
     provider: "anthropic"
     model_name: "claude-sonnet-4-20250514"
     max_tokens: 4000
     temperature: 0.7
-    
+
   claude-opus:
     name: "claude-opus"
     provider: "anthropic"
     model_name: "claude-opus-4-20250514"
     max_tokens: 4000
     temperature: 0.7
-    
+
   llama:
     name: "llama"
     provider: "ollama"
@@ -248,21 +300,21 @@ profiles:
     max_tokens: 2000
     temperature: 0.7
     # api_key will be set via environment variables
-    
+
   gpt4:
     name: "gpt4"
     provider: "openai"
     model_name: "gpt-4"
     max_tokens: 4000
     temperature: 0.7
-    
+
   claude:
     name: "claude"
     provider: "anthropic"
     model_name: "claude-sonnet-4-20250514"
     max_tokens: 4000
     temperature: 0.7
-    
+
   llama:
     name: "llama"
     provider: "ollama"

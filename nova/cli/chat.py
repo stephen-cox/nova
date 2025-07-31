@@ -47,6 +47,25 @@ def list_sessions():
         raise typer.Exit(1) from e
 
 
+@chat_app.command("resume")
+def resume_last_session(
+    profile: str | None = typer.Option(
+        None, "--profile", "-p", help="AI profile to use for this chat session"
+    ),
+):
+    """Resume the most recently saved chat session"""
+    try:
+        # Import here to avoid circular import
+        from nova.main import app
+
+        chat_manager = ChatManager(app.state.config_file, profile_override=profile)
+        chat_manager.resume_last_conversation()
+
+    except Exception as e:
+        print_error(f"Failed to resume last session: {e}")
+        raise typer.Exit(1) from e
+
+
 @chat_app.callback(invoke_without_command=True)
 def chat_callback(ctx: typer.Context):
     """Chat-related commands"""

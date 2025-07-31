@@ -388,3 +388,29 @@ class ChatManager:
 
         print()
         print_info("Use 'nova chat start <session_id>' to continue a conversation")
+
+    def resume_last_conversation(self) -> None:
+        """Resume the most recently saved conversation"""
+        # Find the most recent conversation
+        recent_conversation = self.history_manager.get_most_recent_conversation()
+
+        if not recent_conversation:
+            print_error("No saved conversations found to resume")
+            print_info("Start a new chat with 'nova chat start'")
+            return
+
+        filepath, title, timestamp = recent_conversation
+
+        # Extract session ID from filename for consistency with existing logic
+        session_id = (
+            filepath.stem.split("_", 2)[-1] if "_" in filepath.stem else filepath.stem
+        )
+
+        print_success("Resuming most recent conversation")
+        print_info(f"Session: {session_id}")
+        print_info(f"Title: {title}")
+        print_info(f"Last updated: {timestamp.strftime('%Y-%m-%d %H:%M')}")
+        print()
+
+        # Start the interactive chat with the found session
+        self.start_interactive_chat(session_id)

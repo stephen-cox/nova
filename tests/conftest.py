@@ -110,7 +110,7 @@ def sample_markdown() -> str:
 
 Hello, how are you?
 
-## Assistant (12:05:00)
+## Nova (12:05:00)
 
 I'm doing well, thank you! How can I help you today?
 
@@ -118,7 +118,7 @@ I'm doing well, thank you! How can I help you today?
 
 Can you explain Python decorators?
 
-## Assistant (12:15:00)
+## Nova (12:15:00)
 
 Sure! Python decorators are a way to modify or enhance functions...
 

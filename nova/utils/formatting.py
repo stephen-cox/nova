@@ -13,15 +13,18 @@ def print_message(role: str, content: str, timestamp: str = None):
     if role.lower() == "user":
         color = "blue"
         icon = "👤"
+        display_role = role.title()
     elif role.lower() == "assistant":
         color = "green"
         icon = "🤖"
+        display_role = "Nova"
     else:
         color = "yellow"
         icon = "ℹ️"
+        display_role = role.title()
 
     # Create header
-    header = f"{icon} {role.title()}"
+    header = f"{icon} {display_role}"
     if timestamp:
         header += f" ({timestamp})"
 

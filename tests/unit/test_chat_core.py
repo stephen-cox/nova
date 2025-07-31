@@ -664,3 +664,77 @@ class TestChatManager:
         manager.list_conversations()
 
         mock_print_info.assert_called_once_with("No saved conversations found")
+
+    @patch("nova.core.chat.ChatSession")
+    @patch("nova.core.chat.config_manager")
+    @patch("nova.core.chat.HistoryManager")
+    @patch("nova.core.chat.MemoryManager")
+    @patch("nova.core.chat.print_error")
+    @patch("nova.core.chat.print_info")
+    def test_resume_last_conversation_no_history(
+        self,
+        mock_print_info,
+        mock_print_error,
+        mock_memory_manager,
+        mock_history_manager,
+        mock_config_manager,
+        mock_chat_session,
+    ):
+        """Test resuming conversation when no history exists"""
+        mock_config_manager.load_config.return_value = self.config
+        mock_history_instance = mock_history_manager.return_value
+        mock_history_instance.get_most_recent_conversation.return_value = None
+
+        manager = ChatManager()
+        manager.resume_last_conversation()
+
+        mock_print_error.assert_called_once_with(
+            "No saved conversations found to resume"
+        )
+        mock_print_info.assert_called_once_with(
+            "Start a new chat with 'nova chat start'"
+        )
+
+    @patch("nova.core.chat.ChatSession")
+    @patch("nova.core.chat.config_manager")
+    @patch("nova.core.chat.HistoryManager")
+    @patch("nova.core.chat.MemoryManager")
+    @patch("nova.core.chat.print_success")
+    @patch("nova.core.chat.print_info")
+    def test_resume_last_conversation_with_history(
+        self,
+        mock_print_info,
+        mock_print_success,
+        mock_memory_manager,
+        mock_history_manager,
+        mock_config_manager,
+        mock_chat_session,
+    ):
+        """Test resuming conversation when history exists"""
+        from datetime import datetime
+        from pathlib import Path
+
+        mock_config_manager.load_config.return_value = self.config
+        mock_history_instance = mock_history_manager.return_value
+
+        # Mock most recent conversation
+        test_path = Path("/fake/path/20250731_120000_test-session.md")
+        test_title = "Test Chat Session"
+        test_timestamp = datetime(2025, 7, 31, 12, 0, 0)
+        mock_history_instance.get_most_recent_conversation.return_value = (
+            test_path,
+            test_title,
+            test_timestamp,
+        )
+
+        manager = ChatManager()
+
+        # Mock the start_interactive_chat method to avoid actually starting chat
+        with patch.object(manager, "start_interactive_chat") as mock_start_chat:
+            manager.resume_last_conversation()
+
+        mock_print_success.assert_called_once_with("Resuming most recent conversation")
+        mock_print_info.assert_any_call("Session: test-session")
+        mock_print_info.assert_any_call("Title: Test Chat Session")
+        mock_print_info.assert_any_call("Last updated: 2025-07-31 12:00")
+        mock_start_chat.assert_called_once_with("test-session")

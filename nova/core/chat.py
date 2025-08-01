@@ -1,5 +1,6 @@
 """Core chat session management"""
 
+import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +18,10 @@ from nova.utils.formatting import (
     print_message,
     print_search_results,
     print_success,
+    print_warning,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ChatSession:
@@ -146,7 +150,7 @@ class ChatManager:
                 f"Using direct config: {active_config.provider}/{active_config.model_name}"
             )
 
-        print_info("Type '/exit', '/quit', or press Ctrl+C to end the session")
+        print_info("Type '/q', '/quit', or press Ctrl+C to end the session")
         print_info("Type '/help' for available commands")
         print()
 
@@ -175,8 +179,8 @@ class ChatManager:
 
                 # Handle commands
                 if user_input.startswith("/"):
-                    # Handle /exit and /quit commands
-                    if user_input.lower() in ["/exit", "/quit"]:
+                    # Handle /q and /quit commands
+                    if user_input.lower() in ["/q", "/quit"]:
                         print("Goodbye!")
                         break
                     self._handle_command(user_input, session)
@@ -246,7 +250,7 @@ class ChatManager:
                 "  /search <query> --provider <provider> - Search with specific provider"
             )
             print("  /search <query> --max <number> - Limit number of results")
-            print("  /exit, /quit - End session")
+            print("  /q, /quit - End session")
 
         elif cmd == "/history":
             session.print_conversation_history()
@@ -404,20 +408,45 @@ class ChatManager:
                 }
             }
 
-            # Perform the search
+            # Get AI client for content summarization if available
+            ai_client = None
+            if self.config.search.use_ai_answers:
+                try:
+                    from nova.core.ai_client import create_ai_client
+
+                    active_config = self.config.get_active_ai_config()
+                    ai_client = create_ai_client(active_config)
+                except Exception as e:
+                    print_warning(f"AI client unavailable for summarization: {e}")
+
+            # Perform the search with content extraction if AI answers are enabled
             search_response = search_web(
                 config=search_config,
                 query=query,
                 provider=provider,
                 max_results=max_results,
+                extract_content=self.config.search.use_ai_answers,  # Extract content only if AI answers are enabled
+                ai_client=ai_client,
             )
 
             # Check if AI answers are enabled
             if self.config.search.use_ai_answers:
-                # Generate AI response using search results
-                ai_response = self._generate_search_response(
-                    query, search_response, session
-                )
+                # Generate comprehensive synthesis if we have enhanced results
+                if any(
+                    hasattr(r, "content_summary") and r.content_summary
+                    for r in search_response.results
+                ):
+                    print_info(
+                        "Generating comprehensive analysis from extracted content..."
+                    )
+                    ai_response = self._generate_enhanced_search_response(
+                        query, search_response, session, ai_client
+                    )
+                else:
+                    # Fallback to standard search response
+                    ai_response = self._generate_search_response(
+                        query, search_response, session
+                    )
 
                 # Print the AI response
                 print_message("Nova", ai_response)
@@ -541,7 +570,7 @@ Instructions:
             raise AIError(f"Failed to generate search response: {e}")
 
     def _format_search_results_for_ai(self, search_response) -> str:
-        """Format search results for AI context"""
+        """Format search results for AI context, using enhanced content when available"""
         if not search_response.results:
             return "No search results found."
 
@@ -549,11 +578,22 @@ Instructions:
         for i, result in enumerate(
             search_response.results[:5], 1
         ):  # Limit to top 5 results
+            # Use content summary if available, otherwise fall back to snippet
+            content = result.content_summary or result.snippet
+
+            # Add extraction status info if content extraction was attempted
+            extraction_info = ""
+            if hasattr(result, "extraction_success"):
+                if result.extraction_success and result.content_summary:
+                    extraction_info = " (Enhanced with full content summary)"
+                elif not result.extraction_success:
+                    extraction_info = " (Content extraction failed, using snippet)"
+
             formatted_result = f"""Result {i}:
 Title: {result.title}
 URL: {result.url}
-Source: {result.source}
-Content: {result.snippet}
+Source: {result.source}{extraction_info}
+Content: {content}
 """
             formatted_results.append(formatted_result)
 
@@ -597,6 +637,43 @@ Content: {result.snippet}
                 sources.append(source_entry)
 
         return "\n".join(sources) if sources else "No sources available."
+
+    def _generate_enhanced_search_response(
+        self, query: str, search_response, session: ChatSession = None, ai_client=None
+    ) -> str:
+        """Generate enhanced AI response using content extraction and synthesis"""
+
+        # Try to use advanced synthesis if we have an AI client
+        if ai_client:
+            try:
+                from nova.core.search import ContentSummarizer
+
+                summarizer = ContentSummarizer(ai_client)
+
+                # Generate comprehensive synthesis - need to handle async properly
+                import asyncio
+
+                try:
+                    loop = asyncio.get_event_loop()
+                    synthesis = loop.run_until_complete(
+                        summarizer.synthesize_results(search_response.results, query)
+                    )
+                except RuntimeError:
+                    # No event loop exists, create a new one
+                    synthesis = asyncio.run(
+                        summarizer.synthesize_results(search_response.results, query)
+                    )
+
+                if synthesis and len(synthesis.strip()) > 50:
+                    # Format the synthesis with sources
+                    sources_list = self._extract_sources_from_results(search_response)
+                    return f"{synthesis}\n\n## Sources:\n{sources_list}"
+
+            except Exception as e:
+                logger.warning(f"Enhanced synthesis failed: {e}")
+
+        # Fallback to standard search response
+        return self._generate_search_response(query, search_response, session)
 
     def list_conversations(self) -> None:
         """List all saved conversations"""

@@ -10,7 +10,9 @@ from urllib.parse import unquote
 
 import httpx
 from bs4 import BeautifulSoup
+from newspaper import Article
 from pydantic import BaseModel, Field
+from readability import Document
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,15 @@ class SearchResult(BaseModel):
     source: str = Field(description="Source website domain")
     published_date: datetime | None = Field(
         default=None, description="Publication date if available"
+    )
+    full_content: str | None = Field(
+        default=None, description="Full extracted webpage content"
+    )
+    content_summary: str | None = Field(
+        default=None, description="AI-generated summary of the content"
+    )
+    extraction_success: bool = Field(
+        default=False, description="Whether content extraction was successful"
     )
 
 
@@ -67,6 +78,77 @@ class BaseSearchClient(ABC):
     async def close(self):
         """Close the HTTP client"""
         await self.client.aclose()
+
+    async def extract_content(self, url: str) -> tuple[str | None, bool]:
+        """Extract full content from a webpage URL
+
+        Returns:
+            tuple: (extracted_content, success_flag)
+        """
+        try:
+            # Method 1: Try newspaper3k first (better for articles)
+            article = Article(url)
+            article.download()
+            article.parse()
+
+            if article.text and len(article.text.strip()) > 100:
+                logger.debug(f"Content extracted via newspaper3k from {url}")
+                return article.text.strip(), True
+
+        except Exception as e:
+            logger.debug(f"Newspaper3k extraction failed for {url}: {e}")
+
+        try:
+            # Method 2: Fallback to readability-lxml (better for general pages)
+            response = await self.client.get(url, timeout=15.0)
+            response.raise_for_status()
+
+            doc = Document(response.text)
+            content = doc.summary()
+
+            if content:
+                # Parse with BeautifulSoup to extract clean text
+                soup = BeautifulSoup(content, "html.parser")
+                clean_text = soup.get_text(separator=" ", strip=True)
+
+                if len(clean_text.strip()) > 100:
+                    logger.debug(f"Content extracted via readability from {url}")
+                    return clean_text.strip(), True
+
+        except Exception as e:
+            logger.debug(f"Readability extraction failed for {url}: {e}")
+
+        try:
+            # Method 3: Basic HTML parsing fallback
+            response = await self.client.get(url, timeout=10.0)
+            response.raise_for_status()
+
+            soup = BeautifulSoup(response.text, "html.parser")
+
+            # Remove unwanted elements
+            for tag in soup(["script", "style", "nav", "header", "footer", "aside"]):
+                tag.decompose()
+
+            # Try to find main content areas
+            main_content = (
+                soup.find("main")
+                or soup.find("article")
+                or soup.find(class_=re.compile(r"content|main|article", re.I))
+                or soup.find("div", class_=re.compile(r"post|entry|body", re.I))
+                or soup.body
+            )
+
+            if main_content:
+                text = main_content.get_text(separator=" ", strip=True)
+                if len(text.strip()) > 100:
+                    logger.debug(f"Content extracted via basic HTML parsing from {url}")
+                    return text.strip()[:5000], True  # Limit to 5000 chars
+
+        except Exception as e:
+            logger.debug(f"Basic HTML extraction failed for {url}: {e}")
+
+        logger.warning(f"All content extraction methods failed for {url}")
+        return None, False
 
 
 class DuckDuckGoSearchClient(BaseSearchClient):
@@ -390,6 +472,108 @@ class BingSearchClient(BaseSearchClient):
             raise SearchError(f"Bing search failed: {e}")
 
 
+class ContentSummarizer:
+    """Handles advanced multi-level summarization using AI providers"""
+
+    def __init__(self, ai_client):
+        self.ai_client = ai_client
+
+    async def summarize_content(
+        self, content: str, query: str, max_length: int = 200
+    ) -> str:
+        """Generate a focused summary of content based on the search query"""
+        if not content or len(content.strip()) < 50:
+            return "Content too short to summarize"
+
+        # Truncate very long content to avoid token limits
+        if len(content) > 3000:
+            content = content[:3000] + "..."
+
+        prompt = f"""Summarize the following content in relation to the search query "{query}".
+Focus on information most relevant to the query. Keep the summary under {max_length} words and make it informative and actionable.
+
+Content:
+{content}
+
+Summary:"""
+
+        try:
+            # Use Nova's AI client interface
+            messages = [
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant that creates concise, relevant summaries.",
+                },
+                {"role": "user", "content": prompt},
+            ]
+
+            response = await self.ai_client.generate_response(messages)
+            return response.strip() if response else "Summary generation failed"
+
+        except Exception as e:
+            logger.warning(f"AI summarization failed: {e}")
+            # Fallback to simple truncation
+            sentences = content.split(". ")
+            summary = sentences[0]
+            for sentence in sentences[1:3]:  # Take first 3 sentences max
+                if len(summary + sentence) < max_length * 6:  # Rough char limit
+                    summary += ". " + sentence
+                else:
+                    break
+            return summary + ("..." if len(sentences) > 3 else "")
+
+    async def synthesize_results(
+        self, search_results: list[SearchResult], query: str
+    ) -> str:
+        """Create a comprehensive synthesis across multiple search results"""
+        if not search_results:
+            return "No search results available to synthesize."
+
+        # Prepare synthesis prompt with all summaries
+        summaries = []
+        for i, result in enumerate(search_results[:5], 1):  # Limit to top 5 results
+            content = result.content_summary or result.snippet
+            if content:
+                summaries.append(f"{i}. {result.title} ({result.source}):\n{content}")
+
+        if not summaries:
+            return "No content available for synthesis."
+
+        synthesis_prompt = f"""Based on the following search results for the query "{query}", provide a comprehensive answer that:
+1. Synthesizes information from multiple sources
+2. Highlights key points and insights
+3. Notes any conflicting information
+4. Provides a balanced perspective
+
+Search Results:
+{chr(10).join(summaries)}
+
+Comprehensive Answer:"""
+
+        try:
+            # Use Nova's AI client interface
+            messages = [
+                {
+                    "role": "system",
+                    "content": "You are a research assistant that synthesizes information from multiple sources to provide comprehensive, balanced answers.",
+                },
+                {"role": "user", "content": synthesis_prompt},
+            ]
+
+            response = await self.ai_client.generate_response(messages)
+            return response.strip() if response else "Synthesis generation failed"
+
+        except Exception as e:
+            logger.warning(f"AI synthesis failed: {e}")
+            # Fallback to simple concatenation
+            return "\n\n".join(
+                [
+                    f"**{result.title}**: {result.content_summary or result.snippet}"
+                    for result in search_results[:3]
+                ]
+            )
+
+
 class SearchManager:
     """Manages multiple search providers and provides a unified interface"""
 
@@ -422,9 +606,20 @@ class SearchManager:
         query: str,
         provider: str | None = None,
         max_results: int = 10,
+        extract_content: bool = False,
+        ai_client=None,
         **kwargs,
     ) -> SearchResponse:
-        """Perform web search using specified or default provider"""
+        """Perform web search using specified or default provider
+
+        Args:
+            query: Search query
+            provider: Specific search provider to use
+            max_results: Maximum number of results
+            extract_content: Whether to extract full webpage content
+            ai_client: AI client for content summarization
+            **kwargs: Additional search parameters
+        """
         if not self.providers:
             raise SearchError("No search providers configured")
 
@@ -444,10 +639,98 @@ class SearchManager:
                 search_client = next(iter(self.providers.values()))
 
         try:
-            return await search_client.search(query, max_results, **kwargs)
+            # Perform initial search
+            search_response = await search_client.search(query, max_results, **kwargs)
+
+            # Extract content and generate summaries if requested
+            if extract_content and search_response.results:
+                summarizer = ContentSummarizer(ai_client) if ai_client else None
+
+                # Process results concurrently for better performance
+                enhanced_results = []
+                extraction_tasks = []
+
+                for result in search_response.results:
+                    task = self._enhance_result_with_content(
+                        result, search_client, query, summarizer
+                    )
+                    extraction_tasks.append(task)
+
+                # Execute content extraction tasks concurrently (limit to 3 at a time)
+                semaphore = asyncio.Semaphore(3)
+
+                async def limited_task(task):
+                    async with semaphore:
+                        return await task
+
+                enhanced_results = await asyncio.gather(
+                    *[limited_task(task) for task in extraction_tasks],
+                    return_exceptions=True,
+                )
+
+                # Filter out failed extractions and update results
+                valid_results = []
+                for result in enhanced_results:
+                    if isinstance(result, SearchResult):
+                        valid_results.append(result)
+                    elif isinstance(result, Exception):
+                        logger.warning(f"Content extraction failed: {result}")
+                        # Add original result without enhancement
+                        continue
+
+                search_response.results = valid_results
+
+            return search_response
+
         except Exception as e:
             logger.error(f"Search failed with {search_client.__class__.__name__}: {e}")
             raise SearchError(f"Search failed: {e}")
+
+    async def _enhance_result_with_content(
+        self,
+        result: SearchResult,
+        search_client: BaseSearchClient,
+        query: str,
+        summarizer: ContentSummarizer | None,
+    ) -> SearchResult:
+        """Enhance a search result with extracted content and summary"""
+        try:
+            # Extract content
+            content, success = await search_client.extract_content(result.url)
+
+            # Generate summary if content was extracted and summarizer is available
+            summary = None
+            if success and content and summarizer:
+                try:
+                    summary = await summarizer.summarize_content(content, query)
+                except Exception as e:
+                    logger.debug(f"Summary generation failed for {result.url}: {e}")
+
+            # Return enhanced result
+            return SearchResult(
+                title=result.title,
+                url=result.url,
+                snippet=result.snippet,
+                source=result.source,
+                published_date=result.published_date,
+                full_content=content,
+                content_summary=summary,
+                extraction_success=success,
+            )
+
+        except Exception as e:
+            logger.warning(f"Result enhancement failed for {result.url}: {e}")
+            # Return original result with extraction failure marked
+            return SearchResult(
+                title=result.title,
+                url=result.url,
+                snippet=result.snippet,
+                source=result.source,
+                published_date=result.published_date,
+                full_content=None,
+                content_summary=None,
+                extraction_success=False,
+            )
 
     def get_available_providers(self) -> list[str]:
         """Get list of available search providers"""
@@ -465,14 +748,18 @@ def search_web(
     query: str,
     provider: str | None = None,
     max_results: int = 10,
+    extract_content: bool = False,
+    ai_client=None,
     **kwargs,
 ) -> SearchResponse:
-    """Synchronous wrapper for web search"""
+    """Synchronous wrapper for web search with content extraction"""
 
     async def _search():
         search_manager = SearchManager(config)
         try:
-            return await search_manager.search(query, provider, max_results, **kwargs)
+            return await search_manager.search(
+                query, provider, max_results, extract_content, ai_client, **kwargs
+            )
         finally:
             await search_manager.close()
 
@@ -484,7 +771,7 @@ def search_web(
             import concurrent.futures
 
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, _search())
+                future = executor.submit(asyncio.run, _search)
                 return future.result()
         else:
             return loop.run_until_complete(_search())

@@ -241,7 +241,7 @@ class ChatManager:
             print("  /stats    - Show memory and conversation statistics")
             print("  /tag <tag> - Add tag to conversation")
             print("  /tags     - Show conversation tags")
-            print("  /search <query> - Search the web")
+            print("  /search <query> - Search the web and get AI-powered answers")
             print(
                 "  /search <query> --provider <provider> - Search with specific provider"
             )
@@ -339,14 +339,14 @@ class ChatManager:
                 print_info(f"Suggested tags: {', '.join(suggested)}")
 
         elif cmd.startswith("/search "):
-            self._handle_search_command(command[8:].strip())
+            self._handle_search_command(command[8:].strip(), session)
 
         else:
             print_error(f"Unknown command: {command}")
             print_info("Type '/help' for available commands")
 
-    def _handle_search_command(self, search_args: str) -> None:
-        """Handle web search command"""
+    def _handle_search_command(self, search_args: str, session: ChatSession) -> None:
+        """Handle web search command and generate AI response"""
         if not search_args:
             print_error("Please provide a search query")
             print_info(
@@ -412,8 +412,22 @@ class ChatManager:
                 max_results=max_results,
             )
 
-            # Display the results
-            print_search_results(search_response)
+            # Check if AI answers are enabled
+            if self.config.search.use_ai_answers:
+                # Generate AI response using search results
+                ai_response = self._generate_search_response(
+                    query, search_response, session
+                )
+
+                # Print the AI response
+                print_message("Nova", ai_response)
+
+                # Add search query and AI response to session
+                session.add_user_message(f"/search {query}")
+                session.add_assistant_message(ai_response)
+            else:
+                # Display raw search results
+                print_search_results(search_response)
 
         except SearchError as e:
             print_error(f"Search failed: {e}")
@@ -463,6 +477,126 @@ class ChatManager:
 
         except Exception as e:
             raise AIError(f"Failed to generate response: {e}")
+
+    def _generate_search_response(
+        self, query: str, search_response, session: ChatSession = None
+    ) -> str:
+        """Generate AI response using search results as context"""
+
+        # Get active AI config
+        active_config = self.config.get_active_ai_config()
+
+        # Format search results for AI context
+        search_context = self._format_search_results_for_ai(search_response)
+
+        # Create messages for AI
+        messages = []
+
+        # Add system message with search context
+        if active_config.provider in ["openai", "ollama"]:
+            # Get list of sources for citation
+            sources_list = self._extract_sources_from_results(search_response)
+
+            system_message = f"""You are Nova, a helpful AI research assistant. The user has asked a question that required web search. Use the following search results to provide a comprehensive, accurate answer to their query.
+
+Search Query: {query}
+
+Search Results:
+{search_context}
+
+Sources Consulted:
+{sources_list}
+
+Instructions:
+- Look for results with title "Instant Answer" - these contain direct answers to the query
+- If there's an instant answer, present that information prominently and clearly
+- For direct factual queries (like IP addresses, definitions), present the answer directly
+- Cite specific sources when referencing information
+- Be conversational and helpful while being accurate
+- Synthesize information from multiple sources when appropriate
+- IMPORTANT: Always end your response with a "Sources:" section
+- Copy ALL the markdown-formatted links from the "Sources Consulted" section above
+- Each source should be formatted as: - [Page Title](full-url)
+- Include all sources provided, do not summarize or omit any"""
+
+            messages.append({"role": "system", "content": system_message})
+
+        # Add conversation context if we have a session
+        if session:
+            context_messages = session.get_context_messages()
+            messages.extend(context_messages)
+
+        # Add the user's search query
+        messages.append({"role": "user", "content": query})
+
+        # Generate response using AI client
+        try:
+            response = generate_sync_response(config=active_config, messages=messages)
+            return (
+                response.strip()
+                if response
+                else "I apologize, but I couldn't generate a response using the search results. Please try again."
+            )
+        except Exception as e:
+            raise AIError(f"Failed to generate search response: {e}")
+
+    def _format_search_results_for_ai(self, search_response) -> str:
+        """Format search results for AI context"""
+        if not search_response.results:
+            return "No search results found."
+
+        formatted_results = []
+        for i, result in enumerate(
+            search_response.results[:5], 1
+        ):  # Limit to top 5 results
+            formatted_result = f"""Result {i}:
+Title: {result.title}
+URL: {result.url}
+Source: {result.source}
+Content: {result.snippet}
+"""
+            formatted_results.append(formatted_result)
+
+        return "\n".join(formatted_results)
+
+    def _extract_sources_from_results(self, search_response) -> str:
+        """Extract and format sources as markdown links with page titles"""
+        if not search_response.results:
+            return "No sources found."
+
+        sources = []
+        seen_urls = set()  # Avoid duplicate URLs
+
+        for result in search_response.results[:5]:  # Limit to top 5 results
+            if (
+                result.url
+                and result.url.startswith("http")
+                and result.url not in seen_urls
+            ):
+                if result.title and result.title != "Instant Answer":
+                    # Use page title as the link text
+                    source_entry = f"- [{result.title}]({result.url})"
+                else:
+                    # Fallback to domain name if no title
+                    domain = (
+                        result.source
+                        if result.source != "Unknown source"
+                        else result.url
+                    )
+                    source_entry = f"- [{domain}]({result.url})"
+
+                sources.append(source_entry)
+                seen_urls.add(result.url)
+            elif (
+                result.source
+                and result.source != "Unknown source"
+                and "duckduckgo" in result.source.lower()
+            ):
+                # For DuckDuckGo instant answers without URLs
+                source_entry = f"- {result.source} (Instant Answer)"
+                sources.append(source_entry)
+
+        return "\n".join(sources) if sources else "No sources available."
 
     def list_conversations(self) -> None:
         """List all saved conversations"""

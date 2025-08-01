@@ -71,6 +71,10 @@ class SearchConfig(BaseModel):
     max_results: int = Field(
         default=5, description="Default maximum search results", gt=0, le=50
     )
+    use_ai_answers: bool = Field(
+        default=True,
+        description="Generate AI-powered answers from search results instead of showing raw results",
+    )
     google: dict[str, str] = Field(
         default_factory=dict,
         description="Google Custom Search configuration (api_key, search_engine_id)",

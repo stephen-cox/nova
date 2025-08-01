@@ -56,6 +56,7 @@ def show_config(
         table.add_row("Search Enabled", str(config.search.enabled))
         table.add_row("Search Provider", config.search.default_provider)
         table.add_row("Max Search Results", str(config.search.max_results))
+        table.add_row("Use AI Answers", str(config.search.use_ai_answers))
         if config.search.google:
             table.add_row(
                 "Google Search",

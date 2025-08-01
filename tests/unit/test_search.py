@@ -114,6 +114,7 @@ class TestSearchConfig:
             enabled=False,
             default_provider="bing",
             max_results=10,
+            use_ai_answers=False,
             google={"api_key": "test_google_key", "search_engine_id": "test_cx"},
             bing={"api_key": "test_bing_key"},
         )
@@ -121,6 +122,7 @@ class TestSearchConfig:
         assert config.enabled is False
         assert config.default_provider == "bing"
         assert config.max_results == 10
+        assert config.use_ai_answers is False
         assert config.google["api_key"] == "test_google_key"
         assert config.bing["api_key"] == "test_bing_key"
 
@@ -138,9 +140,24 @@ class TestDuckDuckGoSearchClient:
         """Test DuckDuckGo search with mocked response"""
         client = DuckDuckGoSearchClient({})
 
-        # Mock the HTTP response
+        # Mock HTML response with realistic DuckDuckGo structure
+        mock_html = """
+        <html>
+            <body>
+                <div class="result results_links">
+                    <a class="result__a" href="https://example1.com">Test Result 1</a>
+                    <div class="result__snippet">This is a test snippet for result 1</div>
+                </div>
+                <div class="result results_links">
+                    <a class="result__a" href="https://example2.com">Test Result 2</a>
+                    <div class="result__snippet">This is a test snippet for result 2</div>
+                </div>
+            </body>
+        </html>
+        """
+
         mock_response = Mock()
-        mock_response.text = "<html>Mock HTML response</html>"
+        mock_response.text = mock_html
         mock_response.raise_for_status = Mock()
 
         with patch.object(client.client, "get", return_value=mock_response) as mock_get:
@@ -148,8 +165,15 @@ class TestDuckDuckGoSearchClient:
 
             assert response.query == "test query"
             assert response.provider == "DuckDuckGo"
-            assert len(response.results) <= 5  # Mock implementation returns up to 5
+            assert len(response.results) >= 1  # Should find at least one result
             assert response.search_time_ms >= 0
+
+            # Check first result
+            if response.results:
+                first_result = response.results[0]
+                assert first_result.title == "Test Result 1"
+                assert first_result.url == "https://example1.com"
+                assert "test snippet" in first_result.snippet.lower()
 
             mock_get.assert_called_once()
 

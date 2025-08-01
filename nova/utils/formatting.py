@@ -13,7 +13,7 @@ def print_message(role: str, content: str, timestamp: str = None):
     if role.lower() == "user":
         color = "blue"
         icon = "👤"
-        display_role = role.title()
+        display_role = "You"
     elif role.lower() == "assistant":
         color = "green"
         icon = "🤖"

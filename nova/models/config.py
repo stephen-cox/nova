@@ -61,6 +61,33 @@ class AIProfile(BaseModel):
         return v
 
 
+class SearchConfig(BaseModel):
+    """Configuration for web search functionality"""
+
+    enabled: bool = Field(default=True, description="Enable web search functionality")
+    default_provider: str = Field(
+        default="duckduckgo", description="Default search provider"
+    )
+    max_results: int = Field(
+        default=5, description="Default maximum search results", gt=0, le=50
+    )
+    google: dict[str, str] = Field(
+        default_factory=dict,
+        description="Google Custom Search configuration (api_key, search_engine_id)",
+    )
+    bing: dict[str, str] = Field(
+        default_factory=dict, description="Bing Search API configuration (api_key)"
+    )
+
+    @field_validator("default_provider")
+    @classmethod
+    def validate_provider(cls, v: str) -> str:
+        allowed_providers = {"duckduckgo", "google", "bing"}
+        if v not in allowed_providers:
+            raise ValueError(f"Provider must be one of: {', '.join(allowed_providers)}")
+        return v
+
+
 class ChatConfig(BaseModel):
     """Configuration for chat behavior"""
 
@@ -79,6 +106,7 @@ class NovaConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     chat: ChatConfig = Field(default_factory=ChatConfig)
+    search: SearchConfig = Field(default_factory=SearchConfig)
     profiles: dict[str, AIProfile] = Field(
         default_factory=dict, description="Named AI profiles"
     )

@@ -8,9 +8,16 @@ from nova.core.ai_client import AIError, generate_sync_response
 from nova.core.config import config_manager
 from nova.core.history import HistoryManager
 from nova.core.memory import MemoryManager
+from nova.core.search import SearchError, search_web
 from nova.models.config import NovaConfig
 from nova.models.message import Conversation, MessageRole
-from nova.utils.formatting import print_error, print_info, print_message, print_success
+from nova.utils.formatting import (
+    print_error,
+    print_info,
+    print_message,
+    print_search_results,
+    print_success,
+)
 
 
 class ChatSession:
@@ -234,6 +241,11 @@ class ChatManager:
             print("  /stats    - Show memory and conversation statistics")
             print("  /tag <tag> - Add tag to conversation")
             print("  /tags     - Show conversation tags")
+            print("  /search <query> - Search the web")
+            print(
+                "  /search <query> --provider <provider> - Search with specific provider"
+            )
+            print("  /search <query> --max <number> - Limit number of results")
             print("  /exit, /quit - End session")
 
         elif cmd == "/history":
@@ -326,9 +338,88 @@ class ChatManager:
             if suggested:
                 print_info(f"Suggested tags: {', '.join(suggested)}")
 
+        elif cmd.startswith("/search "):
+            self._handle_search_command(command[8:].strip())
+
         else:
             print_error(f"Unknown command: {command}")
             print_info("Type '/help' for available commands")
+
+    def _handle_search_command(self, search_args: str) -> None:
+        """Handle web search command"""
+        if not search_args:
+            print_error("Please provide a search query")
+            print_info(
+                "Usage: /search <query> [--provider <provider>] [--max <number>]"
+            )
+            return
+
+        # Check if search is enabled
+        if not self.config.search.enabled:
+            print_error("Web search is disabled in configuration")
+            return
+
+        # Parse search arguments
+        parts = search_args.split()
+        query_parts = []
+        provider = None
+        max_results = self.config.search.max_results
+
+        i = 0
+        while i < len(parts):
+            if parts[i] == "--provider" and i + 1 < len(parts):
+                provider = parts[i + 1]
+                i += 2
+            elif parts[i] == "--max" and i + 1 < len(parts):
+                try:
+                    max_results = min(int(parts[i + 1]), 50)  # Cap at 50 results
+                except ValueError:
+                    print_error("Invalid number for --max parameter")
+                    return
+                i += 2
+            else:
+                query_parts.append(parts[i])
+                i += 1
+
+        if not query_parts:
+            print_error("Please provide a search query")
+            return
+
+        query = " ".join(query_parts)
+
+        # Use configured provider if none specified
+        if not provider:
+            provider = self.config.search.default_provider
+
+        try:
+            print_info(f"Searching for: {query}")
+            if provider != self.config.search.default_provider:
+                print_info(f"Using provider: {provider}")
+
+            # Convert config to dict for search_web function
+            search_config = {
+                "search": {
+                    "google": dict(self.config.search.google),
+                    "bing": dict(self.config.search.bing),
+                }
+            }
+
+            # Perform the search
+            search_response = search_web(
+                config=search_config,
+                query=query,
+                provider=provider,
+                max_results=max_results,
+            )
+
+            # Display the results
+            print_search_results(search_response)
+
+        except SearchError as e:
+            print_error(f"Search failed: {e}")
+            print_info("Try using a different provider with --provider <provider>")
+        except Exception as e:
+            print_error(f"Unexpected search error: {e}")
 
     def _generate_ai_response(self, session: ChatSession) -> str:
         """Generate AI response using configured provider"""

@@ -344,9 +344,9 @@ class TestChatManager:
         mock_session = MagicMock()
         mock_chat_session.return_value = mock_session
 
-        # Mock the input handler
+        # Mock the input handler to return None (simulating interrupted input)
         mock_input_handler = MagicMock()
-        mock_input_handler.get_input.side_effect = KeyboardInterrupt()
+        mock_input_handler.get_input.return_value = None
         mock_input_handler_class.return_value = mock_input_handler
 
         manager = ChatManager()

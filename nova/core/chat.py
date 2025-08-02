@@ -1,5 +1,6 @@
 """Core chat session management"""
 
+import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -8,9 +9,19 @@ from nova.core.ai_client import AIError, generate_sync_response
 from nova.core.config import config_manager
 from nova.core.history import HistoryManager
 from nova.core.memory import MemoryManager
+from nova.core.search import SearchError, search_web
 from nova.models.config import NovaConfig
 from nova.models.message import Conversation, MessageRole
-from nova.utils.formatting import print_error, print_info, print_message, print_success
+from nova.utils.formatting import (
+    print_error,
+    print_info,
+    print_message,
+    print_search_results,
+    print_success,
+    print_warning,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class ChatSession:
@@ -139,7 +150,7 @@ class ChatManager:
                 f"Using direct config: {active_config.provider}/{active_config.model_name}"
             )
 
-        print_info("Type '/exit', '/quit', or press Ctrl+C to end the session")
+        print_info("Type '/q', '/quit', or press Ctrl+C to end the session")
         print_info("Type '/help' for available commands")
         print()
 
@@ -168,8 +179,8 @@ class ChatManager:
 
                 # Handle commands
                 if user_input.startswith("/"):
-                    # Handle /exit and /quit commands
-                    if user_input.lower() in ["/exit", "/quit"]:
+                    # Handle /q and /quit commands
+                    if user_input.lower() in ["/q", "/quit"]:
                         print("Goodbye!")
                         break
                     self._handle_command(user_input, session)
@@ -234,7 +245,12 @@ class ChatManager:
             print("  /stats    - Show memory and conversation statistics")
             print("  /tag <tag> - Add tag to conversation")
             print("  /tags     - Show conversation tags")
-            print("  /exit, /quit - End session")
+            print("  /search, /s <query> - Search the web and get AI-powered answers")
+            print(
+                "  /search, /s <query> --provider <provider> - Search with specific provider"
+            )
+            print("  /search <query> --max <number> - Limit number of results")
+            print("  /q, /quit - End session")
 
         elif cmd == "/history":
             session.print_conversation_history()
@@ -326,9 +342,130 @@ class ChatManager:
             if suggested:
                 print_info(f"Suggested tags: {', '.join(suggested)}")
 
+        elif cmd.startswith("/search "):
+            self._handle_search_command(command[8:].strip(), session)
+
+        elif cmd.startswith("/s "):
+            self._handle_search_command(command[3:].strip(), session)
+
         else:
             print_error(f"Unknown command: {command}")
             print_info("Type '/help' for available commands")
+
+    def _handle_search_command(self, search_args: str, session: ChatSession) -> None:
+        """Handle web search command and generate AI response"""
+        if not search_args:
+            print_error("Please provide a search query")
+            print_info(
+                "Usage: /search <query> [--provider <provider>] [--max <number>]"
+            )
+            return
+
+        # Check if search is enabled
+        if not self.config.search.enabled:
+            print_error("Web search is disabled in configuration")
+            return
+
+        # Parse search arguments
+        parts = search_args.split()
+        query_parts = []
+        provider = None
+        max_results = self.config.search.max_results
+
+        i = 0
+        while i < len(parts):
+            if parts[i] == "--provider" and i + 1 < len(parts):
+                provider = parts[i + 1]
+                i += 2
+            elif parts[i] == "--max" and i + 1 < len(parts):
+                try:
+                    max_results = min(int(parts[i + 1]), 50)  # Cap at 50 results
+                except ValueError:
+                    print_error("Invalid number for --max parameter")
+                    return
+                i += 2
+            else:
+                query_parts.append(parts[i])
+                i += 1
+
+        if not query_parts:
+            print_error("Please provide a search query")
+            return
+
+        query = " ".join(query_parts)
+
+        # Use configured provider if none specified
+        if not provider:
+            provider = self.config.search.default_provider
+
+        try:
+            print_info(f"Searching for: {query}")
+            if provider != self.config.search.default_provider:
+                print_info(f"Using provider: {provider}")
+
+            # Convert config to dict for search_web function
+            search_config = {
+                "search": {
+                    "google": dict(self.config.search.google),
+                    "bing": dict(self.config.search.bing),
+                }
+            }
+
+            # Get AI client for content summarization if available
+            ai_client = None
+            if self.config.search.use_ai_answers:
+                try:
+                    from nova.core.ai_client import create_ai_client
+
+                    active_config = self.config.get_active_ai_config()
+                    ai_client = create_ai_client(active_config)
+                except Exception as e:
+                    print_warning(f"AI client unavailable for summarization: {e}")
+
+            # Perform the search with content extraction if AI answers are enabled
+            search_response = search_web(
+                config=search_config,
+                query=query,
+                provider=provider,
+                max_results=max_results,
+                extract_content=self.config.search.use_ai_answers,  # Extract content only if AI answers are enabled
+                ai_client=ai_client,
+            )
+
+            # Check if AI answers are enabled
+            if self.config.search.use_ai_answers:
+                # Generate comprehensive synthesis if we have enhanced results
+                if any(
+                    hasattr(r, "content_summary") and r.content_summary
+                    for r in search_response.results
+                ):
+                    print_info(
+                        "Generating comprehensive analysis from extracted content..."
+                    )
+                    ai_response = self._generate_enhanced_search_response(
+                        query, search_response, session, ai_client
+                    )
+                else:
+                    # Fallback to standard search response
+                    ai_response = self._generate_search_response(
+                        query, search_response, session
+                    )
+
+                # Print the AI response
+                print_message("Nova", ai_response)
+
+                # Add search query and AI response to session
+                session.add_user_message(f"/search {query}")
+                session.add_assistant_message(ai_response)
+            else:
+                # Display raw search results
+                print_search_results(search_response)
+
+        except SearchError as e:
+            print_error(f"Search failed: {e}")
+            print_info("Try using a different provider with --provider <provider>")
+        except Exception as e:
+            print_error(f"Unexpected search error: {e}")
 
     def _generate_ai_response(self, session: ChatSession) -> str:
         """Generate AI response using configured provider"""
@@ -372,6 +509,174 @@ class ChatManager:
 
         except Exception as e:
             raise AIError(f"Failed to generate response: {e}")
+
+    def _generate_search_response(
+        self, query: str, search_response, session: ChatSession = None
+    ) -> str:
+        """Generate AI response using search results as context"""
+
+        # Get active AI config
+        active_config = self.config.get_active_ai_config()
+
+        # Format search results for AI context
+        search_context = self._format_search_results_for_ai(search_response)
+
+        # Create messages for AI
+        messages = []
+
+        # Add system message with search context
+        if active_config.provider in ["openai", "ollama"]:
+            # Get list of sources for citation
+            sources_list = self._extract_sources_from_results(search_response)
+
+            system_message = f"""You are Nova, a helpful AI research assistant. The user has asked a question that required web search. Use the following search results to provide a comprehensive, accurate answer to their query.
+
+Search Query: {query}
+
+Search Results:
+{search_context}
+
+Sources Consulted:
+{sources_list}
+
+Instructions:
+- Look for results with title "Instant Answer" - these contain direct answers to the query
+- If there's an instant answer, present that information prominently and clearly
+- For direct factual queries (like IP addresses, definitions), present the answer directly
+- Cite specific sources when referencing information
+- Be conversational and helpful while being accurate
+- Synthesize information from multiple sources when appropriate
+- IMPORTANT: Always end your response with a "Sources:" section
+- Copy ALL the markdown-formatted links from the "Sources Consulted" section above
+- Each source should be formatted as: - [Page Title](full-url)
+- Include all sources provided, do not summarize or omit any"""
+
+            messages.append({"role": "system", "content": system_message})
+
+        # Add conversation context if we have a session
+        if session:
+            context_messages = session.get_context_messages()
+            messages.extend(context_messages)
+
+        # Add the user's search query
+        messages.append({"role": "user", "content": query})
+
+        # Generate response using AI client
+        try:
+            response = generate_sync_response(config=active_config, messages=messages)
+            return (
+                response.strip()
+                if response
+                else "I apologize, but I couldn't generate a response using the search results. Please try again."
+            )
+        except Exception as e:
+            raise AIError(f"Failed to generate search response: {e}")
+
+    def _format_search_results_for_ai(self, search_response) -> str:
+        """Format search results for AI context, using enhanced content when available"""
+        if not search_response.results:
+            return "No search results found."
+
+        formatted_results = []
+        for i, result in enumerate(
+            search_response.results[:5], 1
+        ):  # Limit to top 5 results
+            # Use content summary if available, otherwise fall back to snippet
+            content = result.content_summary or result.snippet
+
+            # Add extraction status info if content extraction was attempted
+            extraction_info = ""
+            if hasattr(result, "extraction_success"):
+                if result.extraction_success and result.content_summary:
+                    extraction_info = " (Enhanced with full content summary)"
+                elif not result.extraction_success:
+                    extraction_info = " (Content extraction failed, using snippet)"
+
+            formatted_result = f"""Result {i}:
+Title: {result.title}
+URL: {result.url}
+Source: {result.source}{extraction_info}
+Content: {content}
+"""
+            formatted_results.append(formatted_result)
+
+        return "\n".join(formatted_results)
+
+    def _extract_sources_from_results(self, search_response) -> str:
+        """Extract and format sources as markdown links with page titles"""
+        if not search_response.results:
+            return "No sources found."
+
+        sources = []
+        seen_urls = set()  # Avoid duplicate URLs
+
+        for result in search_response.results[:5]:  # Limit to top 5 results
+            if (
+                result.url
+                and result.url.startswith("http")
+                and result.url not in seen_urls
+            ):
+                if result.title and result.title != "Instant Answer":
+                    # Use page title as the link text
+                    source_entry = f"- [{result.title}]({result.url})"
+                else:
+                    # Fallback to domain name if no title
+                    domain = (
+                        result.source
+                        if result.source != "Unknown source"
+                        else result.url
+                    )
+                    source_entry = f"- [{domain}]({result.url})"
+
+                sources.append(source_entry)
+                seen_urls.add(result.url)
+            elif (
+                result.source
+                and result.source != "Unknown source"
+                and "duckduckgo" in result.source.lower()
+            ):
+                # For DuckDuckGo instant answers without URLs
+                source_entry = f"- {result.source} (Instant Answer)"
+                sources.append(source_entry)
+
+        return "\n".join(sources) if sources else "No sources available."
+
+    def _generate_enhanced_search_response(
+        self, query: str, search_response, session: ChatSession = None, ai_client=None
+    ) -> str:
+        """Generate enhanced AI response using content extraction and synthesis"""
+
+        # Try to use advanced synthesis if we have an AI client
+        if ai_client:
+            try:
+                from nova.core.search import ContentSummarizer
+
+                summarizer = ContentSummarizer(ai_client)
+
+                # Generate comprehensive synthesis - need to handle async properly
+                import asyncio
+
+                try:
+                    loop = asyncio.get_event_loop()
+                    synthesis = loop.run_until_complete(
+                        summarizer.synthesize_results(search_response.results, query)
+                    )
+                except RuntimeError:
+                    # No event loop exists, create a new one
+                    synthesis = asyncio.run(
+                        summarizer.synthesize_results(search_response.results, query)
+                    )
+
+                if synthesis and len(synthesis.strip()) > 50:
+                    # Format the synthesis with sources
+                    sources_list = self._extract_sources_from_results(search_response)
+                    return f"{synthesis}\n\n## Sources:\n{sources_list}"
+
+            except Exception as e:
+                logger.warning(f"Enhanced synthesis failed: {e}")
+
+        # Fallback to standard search response
+        return self._generate_search_response(query, search_response, session)
 
     def list_conversations(self) -> None:
         """List all saved conversations"""

@@ -52,6 +52,26 @@ def show_config(
         table.add_row("Max History Length", str(config.chat.max_history_length))
         table.add_row("Auto Save", str(config.chat.auto_save))
 
+        # Search settings
+        table.add_row("Search Enabled", str(config.search.enabled))
+        table.add_row("Search Provider", config.search.default_provider)
+        table.add_row("Max Search Results", str(config.search.max_results))
+        table.add_row("Use AI Answers", str(config.search.use_ai_answers))
+        if config.search.google:
+            table.add_row(
+                "Google Search",
+                (
+                    "Configured"
+                    if config.search.google.get("api_key")
+                    else "Not configured"
+                ),
+            )
+        if config.search.bing:
+            table.add_row(
+                "Bing Search",
+                "Configured" if config.search.bing.get("api_key") else "Not configured",
+            )
+
         console.print(table)
 
     except ConfigError as e:

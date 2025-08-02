@@ -245,9 +245,9 @@ class ChatManager:
             print("  /stats    - Show memory and conversation statistics")
             print("  /tag <tag> - Add tag to conversation")
             print("  /tags     - Show conversation tags")
-            print("  /search <query> - Search the web and get AI-powered answers")
+            print("  /search, /s <query> - Search the web and get AI-powered answers")
             print(
-                "  /search <query> --provider <provider> - Search with specific provider"
+                "  /search, /s <query> --provider <provider> - Search with specific provider"
             )
             print("  /search <query> --max <number> - Limit number of results")
             print("  /q, /quit - End session")
@@ -344,6 +344,9 @@ class ChatManager:
 
         elif cmd.startswith("/search "):
             self._handle_search_command(command[8:].strip(), session)
+
+        elif cmd.startswith("/s "):
+            self._handle_search_command(command[3:].strip(), session)
 
         else:
             print_error(f"Unknown command: {command}")

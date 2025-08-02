@@ -292,8 +292,11 @@ class HistoryManager:
         current_timestamp = None
 
         for line in lines:
-            # Check for message headers
-            if line.startswith("## "):
+            # Check for message headers - must match pattern "## User/Nova/System (timestamp)"
+            message_header_match = re.match(
+                r"^## (User|Nova|Assistant|System)\s*\((\d{2}:\d{2}:\d{2})\)", line
+            )
+            if message_header_match:
                 # Save previous message
                 if current_role and current_content:
                     content_text = "\n".join(current_content).strip()
@@ -307,39 +310,30 @@ class HistoryManager:
                         )
 
                 # Parse new message header
-                header = line[3:].strip()
-                if header.startswith("User"):
+                role_name = message_header_match.group(1)
+                timestamp_str = message_header_match.group(2)
+
+                if role_name == "User":
                     current_role = MessageRole.USER
-                elif header.startswith("Assistant") or header.startswith("Nova"):
+                elif role_name in ["Assistant", "Nova"]:
                     current_role = MessageRole.ASSISTANT
-                elif header.startswith("System"):
+                elif role_name == "System":
                     current_role = MessageRole.SYSTEM
                 else:
                     current_role = None
 
                 # Extract timestamp from header
-                timestamp_match = re.search(r"\((\d{2}:\d{2}:\d{2})\)", header)
-                if timestamp_match:
-                    time_str = timestamp_match.group(1)
-                    try:
-                        # Use today's date with the extracted time
-                        time_obj = datetime.strptime(time_str, "%H:%M:%S").time()
-                        current_timestamp = datetime.combine(
-                            created_at.date(), time_obj
-                        )
-                    except ValueError:
-                        current_timestamp = datetime.now()
-                else:
+                try:
+                    # Use today's date with the extracted time
+                    time_obj = datetime.strptime(timestamp_str, "%H:%M:%S").time()
+                    current_timestamp = datetime.combine(created_at.date(), time_obj)
+                except ValueError:
                     current_timestamp = datetime.now()
 
                 current_content = []
 
-            elif (
-                current_role
-                and not line.startswith("#")
-                and not line.startswith("<!--")
-            ):
-                # Add to current message content
+            elif current_role and not line.startswith("<!--"):
+                # Add to current message content (exclude only metadata comments)
                 current_content.append(line)
 
         # Save final message

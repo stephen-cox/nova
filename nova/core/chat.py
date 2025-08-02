@@ -103,8 +103,7 @@ class ChatSession:
         print()
 
         for msg in self.conversation.messages:
-            timestamp = msg.timestamp.strftime("%H:%M:%S")
-            print_message(msg.role.value, msg.content, timestamp)
+            print_message(msg.role.value, msg.content)
 
 
 class ChatManager:

@@ -386,3 +386,58 @@ class TestHistoryManager:
         filepath, title, timestamp = result
         assert filepath == saved_path2
         assert title == "Second Conversation"
+
+    def test_markdown_headings_preserved_in_loaded_conversation(self, history_dir):
+        """Test that markdown headings in messages are preserved when loading conversations"""
+        manager = HistoryManager(history_dir)
+
+        # Create conversation with markdown headings in assistant response
+        conversation = Conversation(id="test-headings", title="Markdown Test")
+        conversation.add_message(
+            MessageRole.USER,
+            "can you show some markdown headings and horizontal rules?",
+        )
+
+        assistant_content = """Here's an example of Markdown headings and horizontal rules:
+
+# Heading 1
+
+This is a basic heading.
+
+## Subheading 1
+
+This is a subheading. It's smaller than the main heading.
+
+### Subheading 2
+
+This is another subheading.
+
+#### Subheading 3
+
+And finally, here's an even smaller subheading.
+
+---
+
+This line is a horizontal rule. It separates the headings from the rest of the text."""
+
+        conversation.add_message(MessageRole.ASSISTANT, assistant_content)
+
+        # Save and load the conversation
+        saved_path = manager.save_conversation(conversation)
+        loaded_conv = manager.load_conversation(saved_path)
+
+        # Verify the assistant message content is preserved with headings
+        assert len(loaded_conv.messages) == 2
+        loaded_assistant_message = loaded_conv.messages[1]
+        assert loaded_assistant_message.role == MessageRole.ASSISTANT
+
+        # Check that markdown headings are preserved
+        assert "# Heading 1" in loaded_assistant_message.content
+        assert "## Subheading 1" in loaded_assistant_message.content
+        assert "### Subheading 2" in loaded_assistant_message.content
+        assert "#### Subheading 3" in loaded_assistant_message.content
+        assert "---" in loaded_assistant_message.content
+
+        # Verify the full content structure is preserved
+        assert "This is a basic heading." in loaded_assistant_message.content
+        assert "horizontal rule" in loaded_assistant_message.content

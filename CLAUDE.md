@@ -106,6 +106,7 @@ Use these commands:
 - **Functional Code**: Use functional and stateless approaches where they improve clarity
 - **Clean logic**: Keep core logic clean and push implementation details to the edges
 - **File Organsiation**: Balance file organization with simplicity - use an appropriate number of files for the project scale
+- **Input Handling**: Use `prompt-toolkit` for enhanced terminal input with arrow key navigation and history support
 
 ## Project Architecture
 
@@ -119,6 +120,7 @@ Use these commands:
 - Configuration management with YAML and environment variable support
 - Chat history persistence in markdown format
 - Interactive chat sessions with commands (/help, /save, etc.)
+- Enhanced input handling with arrow key navigation and message history
 - Comprehensive test suite with unit and integration tests
 
 ## Configuration

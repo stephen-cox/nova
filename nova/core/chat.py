@@ -8,6 +8,7 @@ from pathlib import Path
 from nova.core.ai_client import AIError, generate_sync_response
 from nova.core.config import config_manager
 from nova.core.history import HistoryManager
+from nova.core.input_handler import ChatInputHandler
 from nova.core.memory import MemoryManager
 from nova.core.search import SearchError, search_web
 from nova.models.config import NovaConfig
@@ -133,6 +134,7 @@ class ChatManager:
 
         self.history_manager = HistoryManager(self.config.chat.history_dir)
         self.memory_manager = MemoryManager(self.config.get_active_ai_config())
+        self.input_handler = ChatInputHandler()
 
     def start_interactive_chat(self, session_name: str | None = None) -> None:
         """Start an interactive chat session"""
@@ -152,6 +154,7 @@ class ChatManager:
 
         print_info("Type '/q', '/quit', or press Ctrl+C to end the session")
         print_info("Type '/help' for available commands")
+        print_info("Use arrow keys: ←→ to move cursor, ↑↓ to navigate message history")
         print()
 
         # Create or load session
@@ -160,6 +163,8 @@ class ChatManager:
         if session_name:
             print_info(f"Loaded session: {session_name}")
             session.print_conversation_history()
+            # Load previous user messages into input history
+            self._load_session_history_to_input(session)
         else:
             print_info(f"Started new session: {session.conversation.id}")
 
@@ -167,10 +172,11 @@ class ChatManager:
 
         try:
             while True:
-                # Get user input
-                try:
-                    user_input = input("You: ").strip()
-                except (EOFError, KeyboardInterrupt):
+                # Get user input with enhanced navigation
+                user_input = self.input_handler.get_input("You: ")
+
+                # Handle interruption (Ctrl+C or EOF)
+                if user_input is None:
                     print("\nGoodbye!")
                     break
 
@@ -247,7 +253,7 @@ class ChatManager:
             print("  /tags     - Show conversation tags")
             print("  /search, /s <query> - Search the web and get AI-powered answers")
             print(
-                "  /search, /s <query> --provider <provider> - Search with specific provider"
+                "  /search <query> --provider <provider> - Search with specific provider"
             )
             print("  /search <query> --max <number> - Limit number of results")
             print("  /q, /quit - End session")
@@ -267,7 +273,8 @@ class ChatManager:
 
         elif cmd == "/clear":
             session.conversation.messages = []
-            print_success("Conversation history cleared")
+            self.input_handler.clear_history()
+            print_success("Conversation history and input history cleared")
 
         elif cmd.startswith("/title "):
             title = command[7:].strip()
@@ -726,3 +733,9 @@ Content: {content}
 
         # Start the interactive chat with the found session
         self.start_interactive_chat(session_id)
+
+    def _load_session_history_to_input(self, session: ChatSession) -> None:
+        """Load previous user messages from session into input history"""
+        for message in session.conversation.messages:
+            if message.role == MessageRole.USER and not message.content.startswith("/"):
+                self.input_handler.add_to_history(message.content)

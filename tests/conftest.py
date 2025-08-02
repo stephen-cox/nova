@@ -97,7 +97,38 @@ def sample_conversation() -> Conversation:
 
 @pytest.fixture
 def sample_markdown() -> str:
-    """Sample markdown conversation for testing parsing"""
+    """Sample markdown conversation with YAML frontmatter for testing parsing"""
+    return """---
+conversation_id: test-conv-123
+created_at: '2024-01-01T12:00:00'
+updated_at: '2024-01-01T12:30:00'
+title: Test Conversation
+---
+
+# Test Conversation
+
+## User (12:00:00)
+
+Hello, how are you?
+
+## Nova (12:05:00)
+
+I'm doing well, thank you! How can I help you today?
+
+## User (12:10:00)
+
+Can you explain Python decorators?
+
+## Nova (12:15:00)
+
+Sure! Python decorators are a way to modify or enhance functions...
+
+"""
+
+
+@pytest.fixture
+def legacy_sample_markdown() -> str:
+    """Sample markdown conversation with legacy HTML comments for testing backward compatibility"""
     return """<!-- Nova Chat History -->
 <!-- Conversation ID: test-conv-123 -->
 <!-- Created: 2024-01-01T12:00:00 -->

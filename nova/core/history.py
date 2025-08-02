@@ -4,6 +4,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+import yaml
+
 from nova.models.message import Conversation, Message, MessageRole
 
 
@@ -111,19 +113,28 @@ class HistoryManager:
         return conversations[0] if conversations else None
 
     def _conversation_to_markdown(self, conversation: Conversation) -> str:
-        """Convert conversation to markdown format"""
+        """Convert conversation to markdown format with YAML frontmatter"""
 
         lines = []
 
-        # Metadata header
-        lines.append("<!-- Nova Chat History -->")
-        lines.append(f"<!-- Conversation ID: {conversation.id} -->")
-        lines.append(f"<!-- Created: {conversation.created_at.isoformat()} -->")
-        lines.append(f"<!-- Updated: {conversation.updated_at.isoformat()} -->")
+        # YAML frontmatter
+        metadata = {
+            "conversation_id": conversation.id,
+            "created_at": conversation.created_at.isoformat(),
+            "updated_at": conversation.updated_at.isoformat(),
+        }
 
         if conversation.title:
-            lines.append(f"<!-- Title: {conversation.title} -->")
+            metadata["title"] = conversation.title
 
+        if conversation.tags:
+            metadata["tags"] = list(conversation.tags)
+
+        # Add YAML frontmatter
+        lines.append("---")
+        yaml_content = yaml.dump(metadata, default_flow_style=False, sort_keys=False)
+        lines.append(yaml_content.strip())
+        lines.append("---")
         lines.append("")
 
         # Title
@@ -258,32 +269,66 @@ class HistoryManager:
 
         lines = content.split("\n")
 
-        # Parse metadata
+        # Parse YAML frontmatter
         metadata = {}
-        for line in lines:
-            if line.startswith("<!-- ") and line.endswith(" -->"):
-                comment = line[5:-4]
-                if ":" in comment:
-                    key, value = comment.split(":", 1)
-                    metadata[key.strip()] = value.strip()
+        content_start_idx = 0
+
+        if lines and lines[0].strip() == "---":
+            # Find the closing ---
+            yaml_end_idx = None
+            for i in range(1, len(lines)):
+                if lines[i].strip() == "---":
+                    yaml_end_idx = i
+                    break
+
+            if yaml_end_idx:
+                # Extract YAML content
+                yaml_content = "\n".join(lines[1:yaml_end_idx])
+                try:
+                    metadata = yaml.safe_load(yaml_content) or {}
+                except yaml.YAMLError:
+                    metadata = {}
+                content_start_idx = yaml_end_idx + 1
+
+        # Fallback: Parse legacy HTML comment metadata for backward compatibility
+        if not metadata:
+            for line in lines:
+                if line.startswith("<!-- ") and line.endswith(" -->"):
+                    comment = line[5:-4]
+                    if ":" in comment:
+                        key, value = comment.split(":", 1)
+                        # Convert legacy keys to new format
+                        legacy_key = key.strip()
+                        if legacy_key == "Conversation ID":
+                            metadata["conversation_id"] = value.strip()
+                        elif legacy_key == "Created":
+                            metadata["created_at"] = value.strip()
+                        elif legacy_key == "Updated":
+                            metadata["updated_at"] = value.strip()
+                        elif legacy_key == "Title":
+                            metadata["title"] = value.strip()
 
         # Extract conversation details
-        conv_id = metadata.get("Conversation ID", conversation_id)
-        title = metadata.get("Title")
+        conv_id = metadata.get("conversation_id", conversation_id)
+        title = metadata.get("title")
+        tags = metadata.get("tags", [])
 
         try:
             created_at = (
-                datetime.fromisoformat(metadata["Created"])
-                if "Created" in metadata
+                datetime.fromisoformat(metadata["created_at"])
+                if "created_at" in metadata
                 else datetime.now()
             )
             updated_at = (
-                datetime.fromisoformat(metadata["Updated"])
-                if "Updated" in metadata
+                datetime.fromisoformat(metadata["updated_at"])
+                if "updated_at" in metadata
                 else datetime.now()
             )
-        except ValueError:
+        except (ValueError, TypeError):
             created_at = updated_at = datetime.now()
+
+        # Use only the content after frontmatter for message parsing
+        content_lines = lines[content_start_idx:]
 
         # Parse messages
         messages = []
@@ -291,7 +336,7 @@ class HistoryManager:
         current_content = []
         current_timestamp = None
 
-        for line in lines:
+        for line in content_lines:
             # Check for message headers - must match pattern "## User/Nova/System (timestamp)"
             message_header_match = re.match(
                 r"^## (User|Nova|Assistant|System)\s*\((\d{2}:\d{2}:\d{2})\)", line
@@ -348,10 +393,17 @@ class HistoryManager:
                     )
                 )
 
-        return Conversation(
+        conversation = Conversation(
             id=conv_id,
             title=title,
             messages=messages,
             created_at=created_at,
             updated_at=updated_at,
         )
+
+        # Add tags if present
+        if tags:
+            for tag in tags:
+                conversation.add_tag(tag)
+
+        return conversation

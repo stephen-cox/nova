@@ -132,10 +132,12 @@ class TestHistoryManager:
 
         markdown = manager._conversation_to_markdown(sample_conversation)
 
-        # Check metadata
-        assert "<!-- Nova Chat History -->" in markdown
-        assert f"<!-- Conversation ID: {sample_conversation.id} -->" in markdown
-        assert f"<!-- Title: {sample_conversation.title} -->" in markdown
+        # Check YAML frontmatter
+        assert markdown.startswith("---\n")
+        assert f"conversation_id: {sample_conversation.id}" in markdown
+        assert f"title: {sample_conversation.title}" in markdown
+        assert "created_at:" in markdown
+        assert "updated_at:" in markdown
 
         # Check title
         assert f"# {sample_conversation.title}" in markdown
@@ -441,3 +443,41 @@ This line is a horizontal rule. It separates the headings from the rest of the t
         # Verify the full content structure is preserved
         assert "This is a basic heading." in loaded_assistant_message.content
         assert "horizontal rule" in loaded_assistant_message.content
+
+    def test_legacy_markdown_comments_backward_compatibility(
+        self, history_dir, legacy_sample_markdown
+    ):
+        """Test that legacy HTML comment format is still supported for backward compatibility"""
+        manager = HistoryManager(history_dir)
+
+        conversation = manager._markdown_to_conversation(
+            legacy_sample_markdown, "test-id"
+        )
+
+        assert conversation.id == "test-conv-123"  # From metadata
+        assert conversation.title == "Test Conversation"
+        assert len(conversation.messages) >= 2
+
+        # Check first message
+        first_msg = conversation.messages[0]
+        assert first_msg.role == MessageRole.USER
+        assert "Hello, how are you?" in first_msg.content
+
+    def test_yaml_frontmatter_with_tags(self, history_dir):
+        """Test YAML frontmatter with tags"""
+        manager = HistoryManager(history_dir)
+
+        # Create conversation with tags
+        conversation = Conversation(id="test-tags", title="Tagged Conversation")
+        conversation.add_tag("python")
+        conversation.add_tag("testing")
+        conversation.add_message(MessageRole.USER, "Test message")
+
+        # Save and load
+        saved_path = manager.save_conversation(conversation)
+        loaded_conv = manager.load_conversation(saved_path)
+
+        # Verify tags are preserved
+        assert len(loaded_conv.tags) == 2
+        assert "python" in loaded_conv.tags
+        assert "testing" in loaded_conv.tags

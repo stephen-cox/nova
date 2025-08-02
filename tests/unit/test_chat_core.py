@@ -311,7 +311,7 @@ class TestChatManager:
         mock_session.conversation.id = "test123"
         mock_chat_session.return_value = mock_session
         mock_generate_ai.return_value = "AI response"
-        mock_input.side_effect = ["Hello", "/exit"]
+        mock_input.side_effect = ["Hello", "/q"]
 
         manager = ChatManager()
         manager.start_interactive_chat()
@@ -368,7 +368,7 @@ class TestChatManager:
         mock_config_manager.load_config.return_value = self.config
         mock_session = MagicMock()
         mock_chat_session.return_value = mock_session
-        mock_input.side_effect = ["/help", "/exit"]
+        mock_input.side_effect = ["/help", "/q"]
 
         manager = ChatManager()
         manager.start_interactive_chat()
@@ -799,12 +799,12 @@ class TestChatManager:
         mock_config_manager,
         mock_chat_session,
     ):
-        """Test that /exit and /quit commands work"""
-        # Test /exit command
+        """Test that /q and /quit commands work"""
+        # Test /q command
         mock_config_manager.load_config.return_value = self.config
         mock_session = MagicMock()
         mock_chat_session.return_value = mock_session
-        mock_input.side_effect = ["/exit"]
+        mock_input.side_effect = ["/q"]
 
         manager = ChatManager()
         manager.start_interactive_chat()
@@ -834,18 +834,18 @@ class TestChatManager:
         mock_config_manager,
         mock_chat_session,
     ):
-        """Test that non-slash 'exit' and 'quit' are treated as regular user input"""
+        """Test that non-slash 'q' and 'quit' are treated as regular user input"""
         mock_config_manager.load_config.return_value = self.config
         mock_session = MagicMock()
         mock_session.conversation.id = "test123"
         mock_chat_session.return_value = mock_session
         mock_generate_ai.return_value = "AI response"
-        mock_input.side_effect = ["exit", "/exit"]
+        mock_input.side_effect = ["q", "/q"]
 
         manager = ChatManager()
         manager.start_interactive_chat()
 
         # 'exit' without slash should be treated as user input
-        mock_session.add_user_message.assert_called_with("exit")
+        mock_session.add_user_message.assert_called_with("q")
         mock_generate_ai.assert_called_once()
         mock_session.add_assistant_message.assert_called_once_with("AI response")

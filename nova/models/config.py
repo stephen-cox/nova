@@ -5,6 +5,32 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+class MonitoringConfig(BaseModel):
+    """Configuration for LLM monitoring and metrics"""
+
+    enabled: bool = Field(default=True, description="Enable LLM metrics collection")
+    level: str = Field(
+        default="basic", description="Monitoring level: basic, detailed, debug"
+    )
+    debug_log_file: Path | None = Field(
+        default=None, description="File path for debug logging (debug level only)"
+    )
+    context_warnings: bool = Field(
+        default=True, description="Show context window utilization warnings"
+    )
+    performance_metrics: bool = Field(
+        default=True, description="Collect response time and performance metrics"
+    )
+
+    @field_validator("level")
+    @classmethod
+    def validate_level(cls, v: str) -> str:
+        allowed_levels = {"basic", "detailed", "debug"}
+        if v not in allowed_levels:
+            raise ValueError(f"Level must be one of: {', '.join(allowed_levels)}")
+        return v
+
+
 class AIModelConfig(BaseModel):
     """Configuration for AI model settings"""
 
@@ -111,6 +137,7 @@ class NovaConfig(BaseModel):
 
     chat: ChatConfig = Field(default_factory=ChatConfig)
     search: SearchConfig = Field(default_factory=SearchConfig)
+    monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
     profiles: dict[str, AIProfile] = Field(
         default_factory=dict, description="Named AI profiles"
     )

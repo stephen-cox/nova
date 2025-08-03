@@ -132,10 +132,12 @@ class TestHistoryManager:
 
         markdown = manager._conversation_to_markdown(sample_conversation)
 
-        # Check metadata
-        assert "<!-- Nova Chat History -->" in markdown
-        assert f"<!-- Conversation ID: {sample_conversation.id} -->" in markdown
-        assert f"<!-- Title: {sample_conversation.title} -->" in markdown
+        # Check YAML frontmatter
+        assert "---" in markdown
+        assert f"conversation_id: {sample_conversation.id}" in markdown
+        assert f"title: {sample_conversation.title}" in markdown
+        assert "created:" in markdown
+        assert "updated:" in markdown
 
         # Check title
         assert f"# {sample_conversation.title}" in markdown
@@ -441,3 +443,232 @@ This line is a horizontal rule. It separates the headings from the rest of the t
         # Verify the full content structure is preserved
         assert "This is a basic heading." in loaded_assistant_message.content
         assert "horizontal rule" in loaded_assistant_message.content
+
+    def test_malformed_yaml_frontmatter_handling(self, history_dir):
+        """Test handling of malformed YAML frontmatter"""
+        malformed_content = """---
+title: "Test
+# Missing closing quote and invalid YAML
+created: 2024-01-01
+invalid_structure: [unclosed
+---
+
+# Test Conversation
+
+## User (10:00:00)
+Hello
+"""
+
+        test_file = history_dir / "malformed.md"
+        test_file.write_text(malformed_content)
+
+        manager = HistoryManager(history_dir)
+        # Should fall back gracefully without crashing
+        conversation = manager.load_conversation(test_file)
+        # Should extract title from content when YAML parsing fails
+        assert conversation.title is not None  # Should generate fallback title
+        assert len(conversation.messages) == 1  # Should still parse messages
+
+    def test_yaml_frontmatter_metadata_validation(self, history_dir):
+        """Test that YAML frontmatter metadata is properly validated"""
+        # Create oversized tag list
+        oversized_tags = ["tag"] * 100
+        oversized_title = "A" * 300
+
+        # Test oversized title and invalid data
+        oversized_content = f"""---
+title: "{oversized_title}"
+created: "not-a-date"
+conversation_id: "test/../malicious"
+tags: {oversized_tags}
+summaries_count: -5
+unknown_key: "should be ignored"
+---
+
+# Test Conversation
+
+## User (10:00:00)
+Hello
+"""
+
+        test_file = history_dir / "oversized.md"
+        test_file.write_text(oversized_content)
+
+        manager = HistoryManager(history_dir)
+        conversation = manager.load_conversation(test_file)
+
+        # Title should be truncated
+        assert len(conversation.title or "") <= 200
+        # Conversation ID should be sanitized
+        assert conversation.id == "test____malicious"
+        # Tags should be limited
+        assert len(conversation.tags) <= 50
+
+    def test_yaml_frontmatter_security_safe_load(self, history_dir):
+        """Test that YAML frontmatter uses safe loading"""
+        # This would be dangerous with yaml.load but safe with yaml.safe_load
+        potentially_malicious_content = """---
+title: !!python/object/apply:builtins.print ["This should not execute"]
+created: 2024-01-01T10:00:00
+---
+
+# Test Conversation
+
+## User (10:00:00)
+Hello
+"""
+
+        test_file = history_dir / "potentially_malicious.md"
+        test_file.write_text(potentially_malicious_content)
+
+        manager = HistoryManager(history_dir)
+        # Should handle safely without executing code
+        conversation = manager.load_conversation(test_file)
+        # The dangerous YAML should be ignored/rejected
+        assert conversation.title != "This should not execute"
+
+    def test_incomplete_yaml_frontmatter(self, history_dir):
+        """Test handling of incomplete YAML frontmatter"""
+        incomplete_content = """---
+title: "Test Conversation"
+created: 2024-01-01T10:00:00
+# Missing closing --- delimiter
+
+# Test Conversation
+
+## User (10:00:00)
+Hello
+"""
+
+        test_file = history_dir / "incomplete.md"
+        test_file.write_text(incomplete_content)
+
+        manager = HistoryManager(history_dir)
+        # Should fall back to content-based parsing and ignore the invalid YAML
+        conversation = manager.load_conversation(test_file)
+        # Since YAML parsing fails, it should extract from content (which might include comment)
+        assert "Missing closing" in conversation.title or conversation.title == "Hello"
+
+    def test_mixed_yaml_and_html_comments(self, history_dir):
+        """Test files with both YAML frontmatter and HTML comments"""
+        mixed_content = """---
+title: "YAML Title"
+created: 2024-01-01T10:00:00
+---
+
+<!-- Legacy Title: HTML Title -->
+<!-- Created: 2024-01-01T10:00:00 -->
+
+# Test Conversation
+
+## User (10:00:00)
+Hello
+"""
+
+        test_file = history_dir / "mixed.md"
+        test_file.write_text(mixed_content)
+
+        manager = HistoryManager(history_dir)
+        conversation = manager.load_conversation(test_file)
+        # YAML frontmatter should take precedence
+        assert conversation.title == "YAML Title"
+
+    def test_file_encoding_error_handling(self, history_dir):
+        """Test handling of files with encoding issues"""
+        # Create a file with invalid UTF-8
+        binary_file = history_dir / "binary.md"
+        binary_file.write_bytes(b"\xff\xfe Invalid UTF-8 \xff")
+
+        manager = HistoryManager(history_dir)
+        conversations = manager.list_conversations()
+        # Should not crash and should exclude the problematic file
+        assert all(isinstance(conv[1], str) for conv in conversations)
+
+    def test_large_file_performance(self, history_dir):
+        """Test that list_conversations is efficient with large files"""
+        # Create a file with large content but small frontmatter
+        large_content = (
+            """---
+title: "Test Large File"
+created: 2024-01-01T10:00:00
+---
+
+# Test Conversation
+
+## User (10:00:00)
+Hello
+
+## Assistant (10:00:01)
+"""
+            + "This is a very long response. " * 10000
+            + """
+
+## User (10:01:00)
+Continue
+"""
+        )
+
+        test_file = history_dir / "large.md"
+        test_file.write_text(large_content)
+
+        import time
+
+        manager = HistoryManager(history_dir)
+
+        start_time = time.time()
+        conversations = manager.list_conversations()
+        end_time = time.time()
+
+        # Should complete quickly (less than 1 second for this test)
+        assert end_time - start_time < 1.0
+        # Should still extract the title correctly
+        large_conv = next((c for c in conversations if c[0].name == "large.md"), None)
+        assert large_conv is not None
+        assert large_conv[1] == "Test Large File"
+
+    def test_datetime_parsing_error_handling(self, history_dir):
+        """Test handling of invalid datetime formats"""
+        invalid_datetime_content = """---
+title: "Test Conversation"
+created: "not-a-valid-datetime"
+updated: "2024-13-45T25:70:80"  # Invalid date components
+---
+
+# Test Conversation
+
+## User (10:00:00)
+Hello
+"""
+
+        test_file = history_dir / "invalid_dates.md"
+        test_file.write_text(invalid_datetime_content)
+
+        manager = HistoryManager(history_dir)
+        conversation = manager.load_conversation(test_file)
+
+        # Should use current datetime for invalid timestamps
+        assert conversation.created_at is not None
+        assert conversation.updated_at is not None
+        # Title should still be preserved
+        assert conversation.title == "Test Conversation"
+
+    def test_empty_yaml_frontmatter(self, history_dir):
+        """Test handling of empty YAML frontmatter"""
+        empty_frontmatter_content = """---
+---
+
+# Test Conversation
+
+## User (10:00:00)
+Hello
+"""
+
+        test_file = history_dir / "empty_frontmatter.md"
+        test_file.write_text(empty_frontmatter_content)
+
+        manager = HistoryManager(history_dir)
+        conversation = manager.load_conversation(test_file)
+
+        # Should parse successfully with default values
+        assert conversation.title == "Test Conversation"  # From content
+        assert len(conversation.messages) == 1

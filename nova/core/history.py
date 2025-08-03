@@ -1,16 +1,76 @@
 """Chat history management with markdown save/load"""
 
+import logging
 import re
 from datetime import datetime
 from pathlib import Path
 
+import yaml
+
 from nova.models.message import Conversation, Message, MessageRole
+
+logger = logging.getLogger(__name__)
 
 
 class HistoryError(Exception):
     """History-related errors"""
 
     pass
+
+
+def _validate_metadata(metadata: dict) -> dict:
+    """Validate and sanitize metadata from YAML frontmatter"""
+    allowed_keys = {
+        "conversation_id",
+        "created",
+        "updated",
+        "title",
+        "tags",
+        "summaries_count",
+    }
+    max_title_length = 200
+    max_tag_count = 50
+    max_tag_length = 100
+
+    validated = {}
+
+    for key, value in metadata.items():
+        if key not in allowed_keys:
+            logger.warning(f"Ignoring unknown metadata key: {key}")
+            continue
+
+        if key == "title" and isinstance(value, str):
+            # Validate and truncate title
+            validated[key] = value.strip()[:max_title_length]
+        elif key in ["created", "updated"] and isinstance(value, str):
+            # Validate ISO format timestamps
+            try:
+                datetime.fromisoformat(value)
+                validated[key] = value
+            except ValueError:
+                logger.warning(f"Invalid timestamp format for {key}: {value}")
+        elif key == "conversation_id" and isinstance(value, str):
+            # Sanitize conversation_id
+            validated[key] = re.sub(r"[^\w\-]", "_", value.strip())
+        elif key == "tags" and isinstance(value, list):
+            # Validate tags list
+            clean_tags = []
+            for tag in value[:max_tag_count]:  # Limit number of tags
+                if isinstance(tag, str):
+                    clean_tag = tag.strip()[:max_tag_length]
+                    if clean_tag:
+                        clean_tags.append(clean_tag)
+            validated[key] = clean_tags
+        elif key == "summaries_count" and isinstance(value, int):
+            # Validate summaries count
+            if 0 <= value <= 1000:  # Reasonable limit
+                validated[key] = value
+        else:
+            # For other valid keys, store as-is if basic type check passes
+            if isinstance(value, str | int | list):
+                validated[key] = value
+
+    return validated
 
 
 class HistoryManager:
@@ -74,32 +134,17 @@ class HistoryManager:
                 else:
                     timestamp = datetime.fromtimestamp(filepath.stat().st_mtime)
 
-                # Extract title from file (first non-metadata line)
-                with open(filepath, encoding="utf-8") as f:
-                    lines = f.readlines()
-
-                title = "Untitled"
-                for line in lines:
-                    line = line.strip()
-                    if (
-                        line
-                        and not line.startswith("<!--")
-                        and not line.startswith("##")
-                    ):
-                        # Extract title from first user message or use first content
-                        if line.startswith("**User:**"):
-                            title = line[9:].strip()[:50]
-                        elif line.startswith("# "):
-                            title = line[2:].strip()[:50]  # Remove '# ' prefix
-                        else:
-                            title = line[:50]
-                        break
+                # Extract title efficiently (reads only first 1KB)
+                title = self._extract_title_efficiently(filepath)
 
                 conversations.append((filepath, title, timestamp))
 
-            except Exception:
-                # Skip problematic files
-                continue
+            except OSError as e:
+                logger.warning(f"Could not access file {filepath}: {e}")
+            except ValueError as e:
+                logger.warning(f"Invalid timestamp in filename {filepath}: {e}")
+            except Exception as e:
+                logger.error(f"Unexpected error processing file {filepath}: {e}")
 
         # Sort by timestamp (newest first)
         conversations.sort(key=lambda x: x[2], reverse=True)
@@ -111,19 +156,29 @@ class HistoryManager:
         return conversations[0] if conversations else None
 
     def _conversation_to_markdown(self, conversation: Conversation) -> str:
-        """Convert conversation to markdown format"""
+        """Convert conversation to markdown format with YAML frontmatter"""
 
         lines = []
 
-        # Metadata header
-        lines.append("<!-- Nova Chat History -->")
-        lines.append(f"<!-- Conversation ID: {conversation.id} -->")
-        lines.append(f"<!-- Created: {conversation.created_at.isoformat()} -->")
-        lines.append(f"<!-- Updated: {conversation.updated_at.isoformat()} -->")
+        # YAML frontmatter header
+        metadata = {
+            "conversation_id": conversation.id,
+            "created": conversation.created_at.isoformat(),
+            "updated": conversation.updated_at.isoformat(),
+        }
 
         if conversation.title:
-            lines.append(f"<!-- Title: {conversation.title} -->")
+            metadata["title"] = conversation.title
 
+        if conversation.tags:
+            metadata["tags"] = list(conversation.tags)
+
+        if conversation.summaries:
+            metadata["summaries_count"] = len(conversation.summaries)
+
+        lines.append("---")
+        lines.append(yaml.dump(metadata, default_flow_style=False).strip())
+        lines.append("---")
         lines.append("")
 
         # Title
@@ -251,35 +306,172 @@ class HistoryManager:
         first_sentence = re.sub(r"\s+", " ", first_sentence).strip()
         return first_sentence
 
-    def _markdown_to_conversation(
-        self, content: str, conversation_id: str
-    ) -> Conversation:
-        """Parse markdown content back to conversation"""
+    def _parse_yaml_frontmatter(self, content: str) -> tuple[dict, str]:
+        """Parse YAML frontmatter and return validated metadata and remaining content"""
+        if not content.startswith("---\n"):
+            return {}, content
 
         lines = content.split("\n")
+        frontmatter_end = -1
 
-        # Parse metadata
+        # Find the end of the frontmatter
+        for i, line in enumerate(lines[1:], 1):  # Skip first "---"
+            if line.strip() == "---":
+                frontmatter_end = i
+                break
+
+        if frontmatter_end <= 0:
+            logger.warning("YAML frontmatter found but no closing delimiter")
+            return {}, content
+
+        try:
+            frontmatter_text = "\n".join(lines[1:frontmatter_end])
+            frontmatter = yaml.safe_load(frontmatter_text)
+
+            if frontmatter is None:
+                # Empty YAML frontmatter is valid, return empty metadata
+                remaining_content = "\n".join(lines[frontmatter_end + 1 :])
+                return {}, remaining_content
+            elif not isinstance(frontmatter, dict):
+                logger.warning("YAML frontmatter must be a dictionary")
+                return {}, content
+
+            # Validate and sanitize metadata
+            validated_metadata = _validate_metadata(frontmatter)
+            remaining_content = "\n".join(lines[frontmatter_end + 1 :])
+
+            return validated_metadata, remaining_content
+
+        except yaml.YAMLError as e:
+            logger.warning(f"Invalid YAML frontmatter: {e}")
+            return {}, content
+        except Exception as e:
+            logger.error(f"Unexpected error parsing YAML frontmatter: {e}")
+            return {}, content
+
+    def _parse_legacy_metadata(self, content: str) -> dict:
+        """Parse legacy HTML comment metadata format"""
         metadata = {}
+        lines = content.split("\n")
+
         for line in lines:
             if line.startswith("<!-- ") and line.endswith(" -->"):
                 comment = line[5:-4]
                 if ":" in comment:
                     key, value = comment.split(":", 1)
-                    metadata[key.strip()] = value.strip()
+                    # Map old keys to new YAML format
+                    old_key = key.strip()
+                    if old_key == "Conversation ID":
+                        metadata["conversation_id"] = value.strip()
+                    elif old_key == "Created":
+                        metadata["created"] = value.strip()
+                    elif old_key == "Updated":
+                        metadata["updated"] = value.strip()
+                    elif old_key == "Title":
+                        metadata["title"] = value.strip()
+
+        # Still validate legacy metadata
+        return _validate_metadata(metadata)
+
+    def _extract_title_efficiently(self, filepath: Path) -> str:
+        """Extract title efficiently by reading only the beginning of file"""
+        try:
+            with open(filepath, encoding="utf-8") as f:
+                # Read only first 1KB for title extraction
+                partial_content = f.read(1024)
+
+            if partial_content.startswith("---\n"):
+                # Parse only YAML frontmatter
+                metadata, _ = self._parse_yaml_frontmatter(partial_content)
+                if "title" in metadata:
+                    return metadata["title"][:50]
+
+            # Fallback to content-based title extraction
+            return self._extract_title_from_content(partial_content)
+
+        except (OSError, UnicodeDecodeError) as e:
+            logger.warning(f"Error reading file {filepath}: {e}")
+            return "Untitled"
+
+    def _extract_title_from_content(self, content: str) -> str:
+        """Extract title from content when no frontmatter title exists"""
+        lines = content.split("\n")
+
+        # Look for the first real markdown H1 header (outside of YAML frontmatter)
+        skip_until_content = False
+        if content.strip().startswith("---"):
+            skip_until_content = True
+
+        for line in lines:
+            stripped = line.strip()
+
+            # If we started with ---, wait for the content section
+            if skip_until_content:
+                if stripped == "---":
+                    skip_until_content = False  # Found closing, now look for content
+                continue
+
+            # Look for markdown H1 header
+            if stripped.startswith("# ") and not stripped.startswith("##"):
+                # Make sure it's not a comment inside YAML
+                return stripped[2:].strip()[:50]  # Remove '# ' prefix
+
+        # Fallback to first non-metadata content
+        skip_until_content = False
+        if content.strip().startswith("---"):
+            skip_until_content = True
+
+        for line in lines:
+            stripped = line.strip()
+
+            # If we started with ---, wait for the content section
+            if skip_until_content:
+                if stripped == "---":
+                    skip_until_content = False
+                continue
+
+            # Skip empty lines, comments, and headers
+            if (
+                not stripped
+                or stripped.startswith("<!--")
+                or stripped.startswith("#")
+                or stripped.startswith("##")
+            ):
+                continue
+
+            # Extract title from first user message or use first content
+            if stripped.startswith("**User:**"):
+                return stripped[9:].strip()[:50]
+            else:
+                return stripped[:50]
+
+        return "Untitled"
+
+    def _markdown_to_conversation(
+        self, content: str, conversation_id: str
+    ) -> Conversation:
+        """Parse markdown content back to conversation"""
+
+        # Parse metadata using new helper methods
+        metadata, content = self._parse_yaml_frontmatter(content)
+
+        # Fallback to HTML comment parsing for legacy files
+        if not metadata:
+            metadata = self._parse_legacy_metadata(content)
 
         # Extract conversation details
-        conv_id = metadata.get("Conversation ID", conversation_id)
-        title = metadata.get("Title")
+        conv_id = metadata.get("conversation_id", conversation_id)
+        title = metadata.get("title")
 
         try:
             created_at = (
-                datetime.fromisoformat(metadata["Created"])
-                if "Created" in metadata
+                datetime.fromisoformat(metadata["created"])
+                if "created" in metadata
                 else datetime.now()
             )
             updated_at = (
-                datetime.fromisoformat(metadata["Updated"])
-                if "Updated" in metadata
+                datetime.fromisoformat(metadata["updated"])
+                if "updated" in metadata
                 else datetime.now()
             )
         except ValueError:
@@ -290,6 +482,9 @@ class HistoryManager:
         current_role = None
         current_content = []
         current_timestamp = None
+
+        # Split content into lines for message parsing
+        lines = content.split("\n")
 
         for line in lines:
             # Check for message headers - must match pattern "## User/Nova/System (timestamp)"
@@ -334,6 +529,7 @@ class HistoryManager:
 
             elif current_role and not line.startswith("<!--"):
                 # Add to current message content (exclude only metadata comments)
+                # Note: We allow "---" lines within message content as they could be horizontal rules
                 current_content.append(line)
 
         # Save final message
@@ -348,10 +544,33 @@ class HistoryManager:
                     )
                 )
 
-        return Conversation(
+        # Generate title from content if not available
+        if not title:
+            # First try to extract from markdown headers in content
+            title = self._extract_title_from_content(content)
+
+            # If that doesn't work and we have messages, use content-based generation
+            if title == "Untitled" and messages:
+                temp_conversation = Conversation(
+                    id=conv_id,
+                    title=None,
+                    messages=messages,
+                    created_at=created_at,
+                    updated_at=updated_at,
+                )
+                title = self._generate_content_based_title(temp_conversation)
+
+        # Create conversation object
+        conversation = Conversation(
             id=conv_id,
             title=title,
             messages=messages,
             created_at=created_at,
             updated_at=updated_at,
         )
+
+        # Restore tags if they exist in metadata
+        if "tags" in metadata and isinstance(metadata["tags"], list):
+            conversation.tags = set(metadata["tags"])
+
+        return conversation

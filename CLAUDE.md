@@ -10,9 +10,10 @@ Nova is an AI research and personal assistant written in Python that provides:
 - YAML-based configuration management
 - Chat history saved to markdown files
 - **Multi-provider AI integration** (OpenAI, Anthropic, Ollama)
+- **Custom prompt templating system** with built-in templates and user-defined prompts
 - Modular architecture for extensibility
 
-**Current Status:** Phase 2 complete (AI integration), supports OpenAI, Anthropic, and Ollama.
+**Current Status:** Phase 3 complete (Custom Prompting), supports OpenAI, Anthropic, and Ollama with custom prompt templates.
 
 ## Package Management Commands
 
@@ -36,6 +37,13 @@ Use these commands:
 - List saved chat sessions: `uv run nova chat list`
 - Show configuration: `uv run nova config show`
 - Initialize config: `uv run nova config init`
+
+## Prompt Management Commands
+
+- List available prompt templates: `/prompts`
+- Search prompt templates: `/prompts search <query>`
+- Apply a prompt template: `/prompt <name>`
+- Templates are stored in `~/.nova/prompts/user/custom/` (user-defined) and built-in templates
 
 ## Testing Commands
 
@@ -107,6 +115,9 @@ Use these commands:
 - **Clean logic**: Keep core logic clean and push implementation details to the edges
 - **File Organsiation**: Balance file organization with simplicity - use an appropriate number of files for the project scale
 - **Input Handling**: Use `prompt-toolkit` for enhanced terminal input with arrow key navigation and history support
+- **Template Security**: Always validate user-provided templates for dangerous patterns and length limits
+- **Path Security**: Ensure file paths are properly sanitized to prevent directory traversal attacks
+- **Variable Validation**: Use type checking for template variables and validate required fields
 
 ## Project Architecture
 
@@ -121,6 +132,7 @@ Use these commands:
 - Chat history persistence in markdown format
 - Interactive chat sessions with commands (/help, /save, etc.)
 - Enhanced input handling with arrow key navigation and message history
+- **Custom prompt templating system** with validation, categories, and variable substitution
 - Comprehensive test suite with unit and integration tests
 
 ## Configuration

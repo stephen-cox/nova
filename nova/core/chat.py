@@ -1,6 +1,7 @@
 """Core chat session management"""
 
 import logging
+import os
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -10,6 +11,7 @@ from nova.core.config import config_manager
 from nova.core.history import HistoryManager
 from nova.core.input_handler import ChatInputHandler
 from nova.core.memory import MemoryManager
+from nova.core.prompts import PromptManager
 from nova.core.search import SearchError, search_web
 from nova.models.config import NovaConfig
 from nova.models.message import Conversation, MessageRole
@@ -133,6 +135,9 @@ class ChatManager:
 
         self.history_manager = HistoryManager(self.config.chat.history_dir)
         self.memory_manager = MemoryManager(self.config.get_active_ai_config())
+        self.prompt_manager = (
+            PromptManager(self.config.prompts) if self.config.prompts.enabled else None
+        )
         self.input_handler = ChatInputHandler()
 
     def start_interactive_chat(self, session_name: str | None = None) -> None:
@@ -255,6 +260,9 @@ class ChatManager:
                 "  /search <query> --provider <provider> - Search with specific provider"
             )
             print("  /search <query> --max <number> - Limit number of results")
+            print("  /prompt <name> - Apply a prompt template")
+            print("  /prompts  - List available prompt templates")
+            print("  /prompts search <query> - Search prompt templates")
             print("  /q, /quit - End session")
 
         elif cmd == "/history":
@@ -353,6 +361,15 @@ class ChatManager:
 
         elif cmd.startswith("/s "):
             self._handle_search_command(command[3:].strip(), session)
+
+        elif cmd.startswith("/prompt "):
+            self._handle_prompt_command(command[8:].strip(), session)
+
+        elif cmd == "/prompts":
+            self._handle_prompts_list_command(session)
+
+        elif cmd.startswith("/prompts "):
+            self._handle_prompts_search_command(command[9:].strip(), session)
 
         else:
             print_error(f"Unknown command: {command}")
@@ -487,19 +504,9 @@ class ChatManager:
 
         # Add a system message to set context
         if active_config.provider in ["openai", "ollama"]:
-            system_message = "You are Nova, a helpful AI research assistant. Provide clear, accurate, and helpful responses."
-
-            # Add conversation context info if we have summaries
-            if session.conversation.summaries:
-                system_message += (
-                    " You have access to conversation summaries to maintain context."
-                )
-
-            # Add tag context if available
-            if session.conversation.tags:
-                system_message += f" This conversation is tagged with: {', '.join(session.conversation.tags)}."
-
-            messages.append({"role": "system", "content": system_message})
+            system_message = self._build_system_prompt(session)
+            if system_message:
+                messages.append({"role": "system", "content": system_message})
 
         # Add conversation history (already optimized by memory manager)
         messages.extend(context_messages)
@@ -738,3 +745,193 @@ Content: {content}
         for message in session.conversation.messages:
             if message.role == MessageRole.USER and not message.content.startswith("/"):
                 self.input_handler.add_to_history(message.content)
+
+    def _build_system_prompt(self, session: ChatSession) -> str:
+        """Build system prompt using prompt manager or fallback to default"""
+
+        # Get active profile
+        profile = None
+        if (
+            self.config.active_profile
+            and self.config.active_profile in self.config.profiles
+        ):
+            profile = self.config.profiles[self.config.active_profile]
+
+        # Try to use prompt manager for system prompt
+        if self.prompt_manager and profile and profile.system_prompt:
+            # Prepare context variables
+            context = {
+                "current_date": datetime.now().strftime("%Y-%m-%d"),
+                "current_time": datetime.now().strftime("%H:%M:%S"),
+                "user_name": os.getenv("USER", "User"),
+                "conversation_id": session.conversation.id,
+                "active_profile": self.config.active_profile or "default",
+            }
+
+            # Merge with profile variables
+            if profile.prompt_variables:
+                context.update(profile.prompt_variables)
+
+            # Get system prompt from prompt manager
+            system_prompt = self.prompt_manager.get_system_prompt(
+                profile.system_prompt, context
+            )
+            if system_prompt:
+                # Add conversation context info if we have summaries
+                if session.conversation.summaries:
+                    system_prompt += " You have access to conversation summaries to maintain context."
+
+                # Add tag context if available
+                if session.conversation.tags:
+                    system_prompt += f" This conversation is tagged with: {', '.join(session.conversation.tags)}."
+
+                return system_prompt
+
+        # Fallback to default system prompt
+        default_prompt = "You are Nova, a helpful AI research assistant. Provide clear, accurate, and helpful responses."
+
+        # Add conversation context info if we have summaries
+        if session.conversation.summaries:
+            default_prompt += (
+                " You have access to conversation summaries to maintain context."
+            )
+
+        # Add tag context if available
+        if session.conversation.tags:
+            default_prompt += f" This conversation is tagged with: {', '.join(session.conversation.tags)}."
+
+        return default_prompt
+
+    def _handle_prompt_command(self, args: str, session: ChatSession) -> None:
+        """Handle /prompt command for applying templates"""
+
+        if not self.prompt_manager:
+            print_error("Prompt system is disabled")
+            return
+
+        if not args:
+            print_error("Please provide a prompt name")
+            print_info("Usage: /prompt <name>")
+            print_info("Use '/prompts' to see available prompts")
+            return
+
+        # Parse prompt name (first word)
+        parts = args.split()
+        prompt_name = parts[0]
+
+        # Get the template
+        template = self.prompt_manager.get_template(prompt_name)
+        if not template:
+            print_error(f"Prompt template '{prompt_name}' not found")
+            print_info("Use '/prompts' to see available prompts")
+            return
+
+        # Show template info
+        print_info(f"Applying prompt: {template.title}")
+        print_info(f"Description: {template.description}")
+
+        # Collect variables interactively
+        variables = {}
+        for var in template.variables:
+            if var.required:
+                while True:
+                    value = input(f"Enter {var.description} ({var.name}): ").strip()
+                    if value:
+                        variables[var.name] = value
+                        break
+                    print_warning("This field is required")
+            else:
+                default_text = f" [default: {var.default}]" if var.default else ""
+                value = input(
+                    f"Enter {var.description} ({var.name}){default_text}: "
+                ).strip()
+                if value:
+                    variables[var.name] = value
+                elif var.default is not None:
+                    variables[var.name] = var.default
+
+        # Render the template
+        rendered = self.prompt_manager.render_template(prompt_name, variables)
+        if rendered:
+            # Add as system message to current session
+            session.add_system_message(rendered)
+            print_success("Prompt applied successfully!")
+            print_info("The prompt has been added to your conversation context.")
+        else:
+            print_error("Failed to render prompt template")
+
+    def _handle_prompts_list_command(self, session: ChatSession) -> None:
+        """Handle /prompts command for listing templates"""
+
+        if not self.prompt_manager:
+            print_error("Prompt system is disabled")
+            return
+
+        templates = self.prompt_manager.list_templates()
+        if not templates:
+            print_info("No prompt templates available")
+            return
+
+        print_info(f"Available prompt templates ({len(templates)} total):")
+        print()
+
+        # Group by category
+        by_category = {}
+        for template in templates:
+            category = template.category.value
+            if category not in by_category:
+                by_category[category] = []
+            by_category[category].append(template)
+
+        # Display by category
+        for category, templates_in_cat in sorted(by_category.items()):
+            print_success(f"{category.title()}:")
+            for template in sorted(templates_in_cat, key=lambda t: t.name):
+                required_vars = len(template.get_required_variables())
+                optional_vars = len(template.get_optional_variables())
+                var_info = (
+                    f"({required_vars} required, {optional_vars} optional vars)"
+                    if template.variables
+                    else "(no variables)"
+                )
+
+                print(f"  {template.name:<15} - {template.title}")
+                print(f"    {template.description} {var_info}")
+            print()
+
+    def _handle_prompts_search_command(self, query: str, session: ChatSession) -> None:
+        """Handle /prompts search command"""
+
+        if not self.prompt_manager:
+            print_error("Prompt system is disabled")
+            return
+
+        if not query:
+            print_error("Please provide a search query")
+            print_info("Usage: /prompts search <query>")
+            return
+
+        results = self.prompt_manager.search_templates(query)
+        if not results:
+            print_warning(f"No prompts found matching: {query}")
+            return
+
+        print_info(f"Found {len(results)} prompt(s) matching '{query}':")
+        print()
+
+        for template in results:
+            required_vars = len(template.get_required_variables())
+            optional_vars = len(template.get_optional_variables())
+            var_info = (
+                f"({required_vars} required, {optional_vars} optional vars)"
+                if template.variables
+                else "(no variables)"
+            )
+
+            print_success(f"{template.name} - {template.title}")
+            print(f"  Category: {template.category.value}")
+            print(f"  Description: {template.description}")
+            print(f"  Variables: {var_info}")
+            if template.tags:
+                print(f"  Tags: {', '.join(template.tags)}")
+            print()

@@ -530,9 +530,26 @@ class ChatSession:
 - Safety and security measures
 - Documentation and examples
 
-## Built-in Prompt Library
+## Revised Built-in Prompt Library
 
-### Writing & Communication (15 prompts)
+### Phase 0.5: Essential Prompts (5 prompts)
+- `email`: Professional email drafting
+- `code-review`: Basic code review
+- `summarize`: Content summarization
+- `explain`: Concept explanation
+- `analyze`: General analysis framework
+
+### Phase 1: Core Library (10 prompts)
+- Previous 5 plus:
+- `debug-help`: Debugging assistance
+- `technical-doc`: Technical documentation
+- `meeting-notes`: Meeting summarization
+- `creative-writing`: Creative writing assistance
+- `data-analysis`: Data interpretation
+
+### Phase 2: Complete Library (30+ prompts)
+
+#### Writing & Communication (10 prompts)
 - `email-professional`: Professional email drafting
 - `email-followup`: Follow-up email templates
 - `technical-documentation`: Technical doc generation

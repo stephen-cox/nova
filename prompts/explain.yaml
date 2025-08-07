@@ -1,0 +1,36 @@
+name: explain
+title: Concept Explanation
+description: Explain complex concepts in simple terms
+category: education
+tags:
+  - explanation
+  - teaching
+  - concepts
+variables:
+  - name: concept
+    description: Concept to explain
+    type: string
+    required: true
+  - name: audience
+    description: Target audience level
+    type: string
+    required: false
+    default: general
+  - name: examples
+    description: Include examples
+    type: string
+    required: false
+    default: "yes"
+template: |
+  Please explain the concept of "${concept}" for a ${audience} audience.
+
+  ${if examples == "yes"}Please include practical examples and analogies to make it easier to understand.${endif}
+
+  Structure your explanation with:
+  - Clear definition
+  - Why it matters
+  - How it works
+  - Real-world applications
+  - Common misconceptions (if any)
+
+  Use simple language and build from basic concepts to more complex ones.

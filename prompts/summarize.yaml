@@ -1,0 +1,35 @@
+name: summarize
+title: Content Summarization
+description: Summarize content with key points and insights
+category: analysis
+tags:
+  - summary
+  - analysis
+  - key-points
+variables:
+  - name: content
+    description: Content to summarize
+    type: text
+    required: true
+  - name: length
+    description: Summary length
+    type: string
+    required: false
+    default: medium
+  - name: format
+    description: Output format
+    type: string
+    required: false
+    default: bullet-points
+template: |
+  Please provide a ${length} summary of the following content in ${format} format:
+
+  ${content}
+
+  Focus on:
+  - Main ideas and key points
+  - Important details and insights
+  - Actionable takeaways
+  - Clear, concise language
+
+  Structure the summary to be easy to scan and understand.

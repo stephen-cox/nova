@@ -190,6 +190,11 @@ class ConfigManager:
         if "chat" in config_dict and "history_dir" in config_dict["chat"]:
             config_dict["chat"]["history_dir"] = str(config_dict["chat"]["history_dir"])
 
+        if "prompts" in config_dict and "library_path" in config_dict["prompts"]:
+            config_dict["prompts"]["library_path"] = str(
+                config_dict["prompts"]["library_path"]
+            )
+
         try:
             with open(config_path, "w") as f:
                 yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)

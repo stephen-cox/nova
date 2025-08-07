@@ -35,6 +35,22 @@ class AIModelConfig(BaseModel):
         return v
 
 
+class PromptConfig(BaseModel):
+    """Prompt system configuration"""
+
+    enabled: bool = Field(default=True, description="Enable custom prompting")
+    library_path: Path = Field(
+        default=Path("~/.nova/prompts"), description="Prompt library location"
+    )
+    allow_user_prompts: bool = Field(
+        default=True, description="Allow user-defined prompts"
+    )
+    validate_prompts: bool = Field(
+        default=True, description="Validate prompt templates"
+    )
+    max_prompt_length: int = Field(default=8192, description="Maximum prompt length")
+
+
 class AIProfile(BaseModel):
     """Named AI configuration profile"""
 
@@ -50,6 +66,12 @@ class AIProfile(BaseModel):
     )
     temperature: float = Field(
         default=0.7, description="Response temperature", ge=0.0, le=1.0
+    )
+    system_prompt: str | None = Field(
+        default=None, description="Custom system prompt or template reference"
+    )
+    prompt_variables: dict[str, str] = Field(
+        default_factory=dict, description="Default prompt variables"
     )
 
     @field_validator("provider")
@@ -92,6 +114,22 @@ class SearchConfig(BaseModel):
         return v
 
 
+class MonitoringConfig(BaseModel):
+    """Configuration for monitoring and debugging"""
+
+    enabled: bool = Field(default=True, description="Enable monitoring")
+    level: str = Field(
+        default="basic", description="Monitoring level (basic, detailed, debug)"
+    )
+    debug_log_file: str = Field(
+        default="~/.nova/debug.log", description="Debug log file path"
+    )
+    context_warnings: bool = Field(default=True, description="Show context warnings")
+    performance_metrics: bool = Field(
+        default=True, description="Collect performance metrics"
+    )
+
+
 class ChatConfig(BaseModel):
     """Configuration for chat behavior"""
 
@@ -111,6 +149,8 @@ class NovaConfig(BaseModel):
 
     chat: ChatConfig = Field(default_factory=ChatConfig)
     search: SearchConfig = Field(default_factory=SearchConfig)
+    prompts: PromptConfig = Field(default_factory=PromptConfig)
+    monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
     profiles: dict[str, AIProfile] = Field(
         default_factory=dict, description="Named AI profiles"
     )

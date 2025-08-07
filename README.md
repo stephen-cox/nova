@@ -240,7 +240,6 @@ prompts:
   allow_user_prompts: true        # Allow custom user prompts
   validate_prompts: true          # Validate prompt templates
   max_prompt_length: 8192         # Maximum prompt length
-  enable_caching: true            # Enable template caching
 ```
 
 ### Creating Custom Prompts
@@ -422,7 +421,6 @@ prompts:
   allow_user_prompts: true
   validate_prompts: true
   max_prompt_length: 8192
-  enable_caching: true
 
 # AI profiles for different models and providers
 profiles:

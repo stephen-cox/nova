@@ -161,7 +161,6 @@ class PromptManager:
         self.library_path.mkdir(parents=True, exist_ok=True)
         (self.library_path / "user").mkdir(exist_ok=True)
         (self.library_path / "user" / "custom").mkdir(exist_ok=True)
-        (self.library_path / "cache").mkdir(exist_ok=True)
         (self.library_path / "config").mkdir(exist_ok=True)
 
     def _load_builtin_templates(self):

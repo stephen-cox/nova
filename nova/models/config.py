@@ -49,10 +49,6 @@ class PromptConfig(BaseModel):
         default=True, description="Validate prompt templates"
     )
     max_prompt_length: int = Field(default=8192, description="Maximum prompt length")
-    enable_caching: bool = Field(
-        default=True, description="Enable template compilation caching"
-    )
-    cache_size: int = Field(default=100, description="Maximum cached templates")
 
 
 class AIProfile(BaseModel):

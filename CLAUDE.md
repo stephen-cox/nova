@@ -107,6 +107,11 @@ Use these commands:
 - **Clean logic**: Keep core logic clean and push implementation details to the edges
 - **File Organsiation**: Balance file organization with simplicity - use an appropriate number of files for the project scale
 - **Input Handling**: Use `prompt-toolkit` for enhanced terminal input with arrow key navigation and history support
+- **YAML Security**: Always use `yaml.safe_load()` instead of `yaml.load()` to prevent code injection
+- **Error Handling**: Use specific exception types and provide meaningful error messages; avoid silent failures
+- **Metadata Validation**: Validate user-provided metadata to prevent oversized or malicious content
+- **Performance**: Consider lazy loading and caching for operations that read multiple files
+- **Backward Compatibility**: Maintain fallback mechanisms when introducing new data formats
 
 ## Project Architecture
 
@@ -118,10 +123,15 @@ Use these commands:
 
 **Key Components:**
 - Configuration management with YAML and environment variable support
-- Chat history persistence in markdown format
+- Chat history persistence in markdown format with YAML frontmatter metadata
 - Interactive chat sessions with commands (/help, /save, etc.)
 - Enhanced input handling with arrow key navigation and message history
 - Comprehensive test suite with unit and integration tests
+
+**Chat History Format:**
+- New format uses YAML frontmatter for metadata (conversation_id, title, timestamps, tags)
+- Maintains backward compatibility with legacy HTML comment format
+- Metadata includes: conversation_id, created, updated, title, tags, summaries_count
 
 ## Configuration
 

@@ -159,7 +159,7 @@ class TestFormattingUtils:
         mock_console.print.assert_called_once()
         # Verify the panel was created with correct styling
         panel_arg = mock_console.print.call_args[0][0]
-        assert "👤 User (12:34:56)" in str(panel_arg.title)
+        assert "👤 You (12:34:56)" in str(panel_arg.title)
         assert panel_arg.border_style == "blue"
 
     @patch("nova.utils.formatting.console")
@@ -189,7 +189,7 @@ class TestFormattingUtils:
 
         mock_console.print.assert_called_once()
         panel_arg = mock_console.print.call_args[0][0]
-        assert "👤 User" in str(panel_arg.title)
+        assert "👤 You" in str(panel_arg.title)
         assert "(" not in str(panel_arg.title)  # No timestamp
 
     @patch("nova.utils.formatting.console")

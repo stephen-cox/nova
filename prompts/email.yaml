@@ -1,0 +1,35 @@
+name: email
+title: Professional Email
+description: Draft professional emails with proper tone and structure
+category: communication
+tags:
+  - email
+  - professional
+  - business
+variables:
+  - name: purpose
+    description: Purpose of the email
+    type: string
+    required: true
+  - name: recipient
+    description: Recipient name or title
+    type: string
+    required: false
+    default: recipient
+  - name: tone
+    description: Email tone
+    type: string
+    required: false
+    default: professional
+template: |
+  Please help me draft a ${tone} email for the following purpose: ${purpose}
+
+  The recipient is: ${recipient}
+
+  Please structure the email with:
+  - Appropriate subject line
+  - Professional greeting
+  - Clear and concise body
+  - Proper closing
+
+  Make sure the tone is ${tone} and the content addresses the specified purpose effectively.

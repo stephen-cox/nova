@@ -1,0 +1,35 @@
+name: analyze
+title: General Analysis
+description: Analyze and break down complex topics or situations
+category: analysis
+tags:
+  - analysis
+  - breakdown
+  - insights
+variables:
+  - name: topic
+    description: Topic to analyze
+    type: string
+    required: true
+  - name: perspective
+    description: Analysis perspective
+    type: string
+    required: false
+    default: comprehensive
+  - name: depth
+    description: Analysis depth
+    type: string
+    required: false
+    default: thorough
+template: |
+  Please provide a ${depth} ${perspective} analysis of: ${topic}
+
+  Structure your analysis with:
+  - Overview and context
+  - Key components or factors
+  - Relationships and dependencies
+  - Strengths and weaknesses
+  - Potential implications
+  - Recommendations or conclusions
+
+  Use critical thinking and consider multiple angles to provide valuable insights.

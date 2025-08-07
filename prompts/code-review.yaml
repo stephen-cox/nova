@@ -1,0 +1,41 @@
+name: code-review
+title: Code Review Assistant
+description: Comprehensive code review focusing on quality and best practices
+category: development
+tags:
+  - code
+  - review
+  - quality
+  - best-practices
+variables:
+  - name: code
+    description: Code to review
+    type: text
+    required: true
+  - name: language
+    description: Programming language
+    type: string
+    required: false
+    default: auto-detect
+  - name: focus
+    description: Review focus areas
+    type: string
+    required: false
+    default: quality,security,performance
+template: |
+  Please conduct a thorough code review of this ${language} code:
+
+  ```${language}
+  ${code}
+  ```
+
+  Focus areas: ${focus}
+
+  Please provide feedback on:
+  1. Code quality and best practices
+  2. Security considerations
+  3. Performance optimizations
+  4. Maintainability improvements
+  5. Documentation and comments
+
+  Format your response with specific line references and actionable recommendations.

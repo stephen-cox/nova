@@ -165,197 +165,47 @@ class PromptManager:
         (self.library_path / "config").mkdir(exist_ok=True)
 
     def _load_builtin_templates(self):
-        """Load built-in prompt templates"""
-        # For Phase 1, we'll create essential templates in code
-        # Later phases will load from files/database
+        """Load built-in prompt templates from YAML files"""
+        self.builtin_templates = {}
 
-        self.builtin_templates = {
-            "email": PromptTemplate(
-                name="email",
-                title="Professional Email",
-                description="Draft professional emails with proper tone and structure",
-                category=PromptCategory.COMMUNICATION,
-                tags=["email", "professional", "business"],
-                variables=[
-                    PromptVariable(
-                        name="purpose",
-                        description="Purpose of the email",
-                        required=True,
-                    ),
-                    PromptVariable(
-                        name="recipient",
-                        description="Recipient name or title",
-                        required=False,
-                        default="recipient",
-                    ),
-                    PromptVariable(
-                        name="tone",
-                        description="Email tone",
-                        required=False,
-                        default="professional",
-                    ),
-                ],
-                template="""Please help me draft a ${tone} email for the following purpose: ${purpose}
+        # Get the project root directory (where prompts/ is located)
+        project_root = Path(__file__).parent.parent.parent
+        builtin_prompts_dir = project_root / "prompts"
 
-The recipient is: ${recipient}
+        if not builtin_prompts_dir.exists():
+            logger.warning(
+                f"Built-in prompts directory not found: {builtin_prompts_dir}"
+            )
+            return
 
-Please structure the email with:
-- Appropriate subject line
-- Professional greeting
-- Clear and concise body
-- Proper closing
+        # Load all YAML files in the prompts directory
+        for yaml_file in builtin_prompts_dir.glob("*.yaml"):
+            try:
+                with open(yaml_file) as f:
+                    data = yaml.safe_load(f)
 
-Make sure the tone is ${tone} and the content addresses the specified purpose effectively.""",
-            ),
-            "code-review": PromptTemplate(
-                name="code-review",
-                title="Code Review Assistant",
-                description="Comprehensive code review focusing on quality and best practices",
-                category=PromptCategory.DEVELOPMENT,
-                tags=["code", "review", "quality", "best-practices"],
-                variables=[
-                    PromptVariable(
-                        name="code", description="Code to review", required=True
-                    ),
-                    PromptVariable(
-                        name="language",
-                        description="Programming language",
-                        required=False,
-                        default="auto-detect",
-                    ),
-                    PromptVariable(
-                        name="focus",
-                        description="Review focus areas",
-                        required=False,
-                        default="quality,security,performance",
-                    ),
-                ],
-                template="""Please conduct a thorough code review of this ${language} code:
+                # Convert string category to PromptCategory enum
+                if "category" in data:
+                    category_str = data["category"].upper()
+                    data["category"] = PromptCategory[category_str]
 
-```${language}
-${code}
-```
+                # Convert variable dictionaries to PromptVariable objects
+                if "variables" in data:
+                    variables = []
+                    for var_data in data["variables"]:
+                        # Convert string type to VariableType enum if present
+                        if "type" in var_data:
+                            type_str = var_data["type"].upper()
+                            var_data["type"] = VariableType[type_str]
+                        variables.append(PromptVariable(**var_data))
+                    data["variables"] = variables
 
-Focus areas: ${focus}
+                template = PromptTemplate(**data)
+                self.builtin_templates[template.name] = template
+                logger.debug(f"Loaded built-in template: {template.name}")
 
-Please provide feedback on:
-1. Code quality and best practices
-2. Security considerations
-3. Performance optimizations
-4. Maintainability improvements
-5. Documentation and comments
-
-Format your response with specific line references and actionable recommendations.""",
-            ),
-            "summarize": PromptTemplate(
-                name="summarize",
-                title="Content Summarization",
-                description="Summarize content with key points and insights",
-                category=PromptCategory.ANALYSIS,
-                tags=["summary", "analysis", "key-points"],
-                variables=[
-                    PromptVariable(
-                        name="content",
-                        description="Content to summarize",
-                        required=True,
-                    ),
-                    PromptVariable(
-                        name="length",
-                        description="Summary length",
-                        required=False,
-                        default="medium",
-                    ),
-                    PromptVariable(
-                        name="format",
-                        description="Output format",
-                        required=False,
-                        default="bullet-points",
-                    ),
-                ],
-                template="""Please provide a ${length} summary of the following content in ${format} format:
-
-${content}
-
-Focus on:
-- Main ideas and key points
-- Important details and insights
-- Actionable takeaways
-- Clear, concise language
-
-Structure the summary to be easy to scan and understand.""",
-            ),
-            "explain": PromptTemplate(
-                name="explain",
-                title="Concept Explanation",
-                description="Explain complex concepts in simple terms",
-                category=PromptCategory.EDUCATION,
-                tags=["explanation", "teaching", "concepts"],
-                variables=[
-                    PromptVariable(
-                        name="concept", description="Concept to explain", required=True
-                    ),
-                    PromptVariable(
-                        name="audience",
-                        description="Target audience level",
-                        required=False,
-                        default="general",
-                    ),
-                    PromptVariable(
-                        name="examples",
-                        description="Include examples",
-                        required=False,
-                        default="yes",
-                    ),
-                ],
-                template="""Please explain the concept of "${concept}" for a ${audience} audience.
-
-${if examples == "yes"}Please include practical examples and analogies to make it easier to understand.${endif}
-
-Structure your explanation with:
-- Clear definition
-- Why it matters
-- How it works
-- Real-world applications
-- Common misconceptions (if any)
-
-Use simple language and build from basic concepts to more complex ones.""",
-            ),
-            "analyze": PromptTemplate(
-                name="analyze",
-                title="General Analysis",
-                description="Analyze and break down complex topics or situations",
-                category=PromptCategory.ANALYSIS,
-                tags=["analysis", "breakdown", "insights"],
-                variables=[
-                    PromptVariable(
-                        name="topic", description="Topic to analyze", required=True
-                    ),
-                    PromptVariable(
-                        name="perspective",
-                        description="Analysis perspective",
-                        required=False,
-                        default="comprehensive",
-                    ),
-                    PromptVariable(
-                        name="depth",
-                        description="Analysis depth",
-                        required=False,
-                        default="thorough",
-                    ),
-                ],
-                template="""Please provide a ${depth} ${perspective} analysis of: ${topic}
-
-Structure your analysis with:
-- Overview and context
-- Key components or factors
-- Relationships and dependencies
-- Strengths and weaknesses
-- Potential implications
-- Recommendations or conclusions
-
-Use critical thinking and consider multiple angles to provide valuable insights.""",
-            ),
-        }
+            except Exception as e:
+                logger.warning(f"Failed to load built-in template {yaml_file}: {e}")
 
     def _load_user_templates(self):
         """Load user-defined prompt templates"""

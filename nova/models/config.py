@@ -51,6 +51,52 @@ class PromptConfig(BaseModel):
     max_prompt_length: int = Field(default=8192, description="Maximum prompt length")
 
 
+class ToolsConfig(BaseModel):
+    """Tools and function calling configuration"""
+
+    enabled: bool = Field(default=True, description="Enable function calling")
+
+    # Built-in tools
+    enabled_built_in_modules: list[str] = Field(
+        default_factory=lambda: ["file_ops", "web_search", "conversation"],
+        description="Enabled built-in tool modules",
+    )
+
+    # Permission settings
+    permission_mode: str = Field(
+        default="prompt", description="Permission mode: auto, prompt, deny"
+    )
+
+    # Execution settings
+    execution_timeout: int = Field(
+        default=30, description="Tool execution timeout (seconds)"
+    )
+    max_concurrent_tools: int = Field(
+        default=3, description="Max concurrent tool executions"
+    )
+
+    @field_validator("permission_mode")
+    @classmethod
+    def validate_permission_mode(cls, v: str) -> str:
+        allowed_modes = {"auto", "prompt", "deny"}
+        if v not in allowed_modes:
+            raise ValueError(
+                f"Permission mode must be one of: {', '.join(allowed_modes)}"
+            )
+        return v
+
+    # MCP integration (for future use)
+    mcp_enabled: bool = Field(
+        default=False, description="Enable MCP server integration"
+    )
+
+    # Advanced features
+    tool_suggestions: bool = Field(
+        default=True, description="Enable AI tool suggestions"
+    )
+    execution_logging: bool = Field(default=True, description="Log tool executions")
+
+
 class AIProfile(BaseModel):
     """Named AI configuration profile"""
 
@@ -72,6 +118,12 @@ class AIProfile(BaseModel):
     )
     prompt_variables: dict[str, str] = Field(
         default_factory=dict, description="Default prompt variables"
+    )
+
+    # Tools configuration per profile
+    tools: ToolsConfig | None = Field(
+        default=None,
+        description="Tools configuration for this profile (inherits global if None)",
     )
 
     @field_validator("provider")
@@ -151,6 +203,7 @@ class NovaConfig(BaseModel):
     search: SearchConfig = Field(default_factory=SearchConfig)
     prompts: PromptConfig = Field(default_factory=PromptConfig)
     monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
+    tools: ToolsConfig = Field(default_factory=ToolsConfig)
     profiles: dict[str, AIProfile] = Field(
         default_factory=dict, description="Named AI profiles"
     )
@@ -185,3 +238,20 @@ class NovaConfig(BaseModel):
 
         # If no profiles exist, create a minimal default config
         return AIModelConfig()
+
+    def get_effective_tools_config(self) -> ToolsConfig:
+        """Get the effective tools configuration from the active profile or global config"""
+        # Check if active profile has tools configuration
+        if self.active_profile and self.active_profile in self.profiles:
+            profile = self.profiles[self.active_profile]
+            if profile.tools is not None:
+                return profile.tools
+
+        # Fallback to default profile tools config
+        if "default" in self.profiles:
+            profile = self.profiles["default"]
+            if profile.tools is not None:
+                return profile.tools
+
+        # Fall back to global tools configuration
+        return self.tools

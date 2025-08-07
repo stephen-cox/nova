@@ -13,7 +13,7 @@ Nova is an AI research and personal assistant written in Python that provides:
 - **Custom prompt templating system** with built-in templates and user-defined prompts
 - Modular architecture for extensibility
 
-**Current Status:** Phase 3 complete (Custom Prompting), supports OpenAI, Anthropic, and Ollama with custom prompt templates.
+**Current Status:** Phase 4 complete (Tools Integration), supports OpenAI, Anthropic, and Ollama with custom prompt templates and comprehensive tools system with profile-based configuration.
 
 ## Package Management Commands
 
@@ -44,6 +44,20 @@ Use these commands:
 - Search prompt templates: `/prompts search <query>`
 - Apply a prompt template: `/prompt <name>`
 - Templates are stored in `~/.nova/prompts/user/custom/` (user-defined) and built-in templates
+
+## Profile-Based Tools Configuration Commands
+
+**Profile Tools Management:**
+- Show tools config for profile: `uv run nova config show-tools <profile_name>`
+- Configure tools for profile: `uv run nova config set-profile-tools <profile_name> --permission-mode <mode> --modules <modules> --enabled/--disabled`
+- Reset profile to global tools: `uv run nova config reset-profile-tools <profile_name>`
+- List profiles with tools info: `uv run nova config profiles`
+
+**Profile Tools Features:**
+- Each AI profile can have custom tools configuration
+- Profiles inherit global tools settings by default
+- Override specific settings per profile (permission mode, enabled modules, etc.)
+- Use "Global" or "Custom" tools configuration per profile
 
 ## Testing Commands
 

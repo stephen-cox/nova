@@ -6,6 +6,7 @@ Nova is a configurable command-line AI assistant that provides multi-provider AI
 
 - **Multi-provider AI Integration**: Support for OpenAI, Anthropic, and Ollama
 - **Profile-based Configuration**: Easy switching between different AI models and providers
+- **Tools & Function Calling**: Comprehensive tools system with profile-based configuration
 - **Custom Prompting System**: Built-in prompt library with interactive templates and system prompts
 - **Interactive CLI**: Built with Typer for a rich command-line experience
 - **Intelligent Chat History**: Conversations saved as markdown files with smart content-based titles
@@ -117,14 +118,20 @@ uv run nova config show
 # List available profiles
 uv run nova config profiles
 
-# Show specific profile
+# Set active profile
 uv run nova config profile claude
+
+# Show tools configuration for a profile
+uv run nova config show-tools development
+
+# Configure tools for a profile
+uv run nova config set-profile-tools development --permission-mode auto --modules "file_ops,conversation"
+
+# Reset profile tools to global settings
+uv run nova config reset-profile-tools development
 
 # Initialize default configuration
 uv run nova config init
-
-# Validate configuration
-uv run nova config validate
 ```
 
 #### General Commands
@@ -277,6 +284,170 @@ template: |
   - Follow-up actions to consider
 ```
 
+## Tools & Function Calling System
+
+Nova includes a comprehensive tools system that enables AI models to perform actions like file operations, web searches, and more. The tools system supports profile-based configuration, allowing different permission levels and enabled modules per AI profile.
+
+### Available Tools
+
+**Built-in Tool Modules:**
+- **`file_ops`** - File and directory operations (read, write, list, get info)
+- **`web_search`** - Web search capabilities using various providers
+- **`conversation`** - Chat session management and history operations
+
+### Tools Configuration
+
+Configure tools globally or per-profile in your configuration file:
+
+```yaml
+# Global tools configuration
+tools:
+  enabled: true                                    # Enable/disable tools globally
+  permission_mode: "prompt"                        # Permission mode: auto, prompt, deny
+  enabled_built_in_modules: ["file_ops", "web_search", "conversation"]
+  execution_timeout: 30                            # Tool execution timeout (seconds)
+  max_concurrent_tools: 3                          # Max concurrent tool executions
+  tool_suggestions: true                           # Enable AI tool suggestions
+  execution_logging: true                          # Log tool executions
+
+# Profile-specific tools configuration
+profiles:
+  development:
+    name: "Development"
+    provider: "anthropic"
+    model_name: "claude-3-5-sonnet-20241022"
+    tools:
+      enabled: true
+      permission_mode: "auto"                      # Auto-approve safe tools
+      enabled_built_in_modules: ["file_ops", "web_search", "conversation"]
+
+  production:
+    name: "Production"
+    provider: "openai"
+    model_name: "gpt-4"
+    tools:
+      enabled: true
+      permission_mode: "prompt"                    # Always ask for permission
+      enabled_built_in_modules: ["conversation"]   # Only allow safe operations
+
+  restricted:
+    name: "Restricted"
+    provider: "ollama"
+    model_name: "llama3.1"
+    tools:
+      enabled: false                               # Disable all tools
+```
+
+### Permission Modes
+
+- **`auto`** - Automatically approve safe operations, prompt for elevated/system tools
+- **`prompt`** - Always ask for permission before executing tools
+- **`deny`** - Disable all tool execution
+
+### CLI Tools Management
+
+**Profile Tools Commands:**
+```bash
+# Show tools configuration for a profile
+uv run nova config show-tools development
+
+# Configure tools for a profile
+uv run nova config set-profile-tools development \
+  --permission-mode auto \
+  --modules "file_ops,web_search,conversation" \
+  --enabled
+
+# Disable tools for a profile
+uv run nova config set-profile-tools production --disabled
+
+# Reset profile to use global tools configuration
+uv run nova config reset-profile-tools development
+
+# List profiles with tools configuration status
+uv run nova config profiles
+```
+
+**Configuration Options:**
+- `--permission-mode` - Set permission mode (auto, prompt, deny)
+- `--modules` - Comma-separated list of enabled modules
+- `--enabled/--disabled` - Enable or disable tools entirely
+- `--execution-timeout` - Set tool execution timeout in seconds
+
+### Tools in Chat Sessions
+
+When tools are enabled, AI models can automatically use them during conversations:
+
+```bash
+# Start chat with tools enabled (uses profile settings)
+uv run nova chat start --profile development
+
+# Example conversation with file operations:
+User: "Can you read the contents of README.md and summarize it?"
+Nova: I'll read the README.md file for you.
+[Nova uses read_file tool automatically]
+Nova: Based on the README.md content, here's a summary...
+
+User: "Create a backup copy of config.yaml"
+Nova: I'll create a backup copy for you.
+[Nova uses file operations to copy the file]
+Nova: I've successfully created a backup copy...
+```
+
+### Tool Inheritance Hierarchy
+
+Tools configuration follows this inheritance pattern:
+
+1. **Profile-specific tools** - Custom tools configuration for the active profile
+2. **Default profile tools** - Tools configuration from the "default" profile
+3. **Global tools configuration** - Fallback to global tools settings
+
+This allows you to:
+- Set global defaults for all profiles
+- Override specific settings per profile
+- Have some profiles with custom tools while others use global settings
+
+### Example Use Cases
+
+**Development Profile (Permissive):**
+```yaml
+development:
+  tools:
+    permission_mode: "auto"
+    enabled_built_in_modules: ["file_ops", "web_search", "conversation"]
+```
+- Automatically approve file operations for development work
+- Full access to all tool modules
+
+**Production Profile (Restricted):**
+```yaml
+production:
+  tools:
+    permission_mode: "prompt"
+    enabled_built_in_modules: ["conversation"]
+```
+- Always ask for permission
+- Only allow conversation management tools
+
+**Analysis Profile (Read-only):**
+```yaml
+analysis:
+  tools:
+    permission_mode: "auto"
+    enabled_built_in_modules: ["web_search", "conversation"]
+```
+- Auto-approve web searches for research
+- No file system access
+
+### Tool Security
+
+Nova's tools system includes several security features:
+
+- **Permission levels** - Tools are categorized by risk level (safe, elevated, system, dangerous)
+- **Execution timeouts** - Prevent tools from running indefinitely
+- **Argument validation** - Validate tool parameters before execution
+- **Logging** - Optional execution logging for audit trails
+- **Sandboxed execution** - Tools run in controlled environments
+
 ## Enhanced Features
 
 ### Intelligent Title Generation
@@ -422,6 +593,16 @@ prompts:
   validate_prompts: true
   max_prompt_length: 8192
 
+# Tools and function calling system
+tools:
+  enabled: true
+  permission_mode: "prompt"
+  enabled_built_in_modules: ["file_ops", "web_search", "conversation"]
+  execution_timeout: 30
+  max_concurrent_tools: 3
+  tool_suggestions: true
+  execution_logging: true
+
 # AI profiles for different models and providers
 profiles:
   default:
@@ -457,6 +638,10 @@ profiles:
       Focus on writing clean, maintainable, and well-documented code.
       Always explain your reasoning and suggest best practices.
       Today is ${current_date} and the user is ${user_name}.
+    tools:
+      enabled: true
+      permission_mode: "auto"
+      enabled_built_in_modules: ["file_ops", "web_search", "conversation"]
 
   llama:
     name: "llama"
@@ -465,6 +650,10 @@ profiles:
     base_url: "http://localhost:11434"
     max_tokens: 2000
     temperature: 0.7
+    tools:
+      enabled: true
+      permission_mode: "prompt"
+      enabled_built_in_modules: ["conversation"]
 
 # Active profile (defaults to "default" if not specified)
 active_profile: "default"
@@ -502,17 +691,33 @@ nova/
 |   |   |-- config.py     # Configuration management
 |   |   |-- history.py    # Chat history persistence
 |   |   |-- memory.py     # Memory management
-|   |   `-- prompts.py    # Prompt management system
+|   |   |-- prompts.py    # Prompt management system
+|   |   `-- tools/        # Tools system core
+|   |       |-- handler.py      # Tool handlers
+|   |       |-- permissions.py  # Permission management
+|   |       `-- registry.py     # Function registry
 |   |-- models/           # Pydantic data models
 |   |   |-- config.py     # Configuration models
 |   |   |-- message.py    # Message models
-|   |   `-- prompts.py    # Prompt data models
+|   |   |-- prompts.py    # Prompt data models
+|   |   `-- tools.py      # Tools data models
+|   |-- tools/            # Tools and function calling
+|   |   |-- built_in/     # Built-in tool modules
+|   |   |   |-- conversation.py  # Chat management tools
+|   |   |   |-- file_ops.py      # File operation tools
+|   |   |   `-- web_search.py    # Web search tools
+|   |   |-- templates/    # Tool creation templates
+|   |   |-- decorators.py # Tool decorator system
+|   |   |-- registry.py   # Auto-discovery registry
+|   |   `-- user/         # User-defined tools
 |   `-- utils/            # Shared utilities
 |       |-- files.py      # File operations
 |       `-- formatting.py # Output formatting
 |-- tests/                # Test suite
 |   |-- unit/             # Unit tests
-|   |   `-- test_prompts.py # Prompt system tests
+|   |   |-- test_prompts.py           # Prompt system tests
+|   |   |-- test_tools_*.py           # Tools system tests
+|   |   `-- test_profile_tools_config.py # Profile tools tests
 |   `-- integration/      # Integration tests
 `-- config/
     `-- default.yaml      # Default configuration

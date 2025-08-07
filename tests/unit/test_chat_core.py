@@ -288,16 +288,16 @@ class TestChatManager:
     @patch("nova.core.chat.config_manager")
     @patch("nova.core.chat.HistoryManager")
     @patch("nova.core.chat.MemoryManager")
+    @patch("nova.core.chat.ChatInputHandler")
     @patch("nova.core.chat.print_success")
     @patch("nova.core.chat.print_info")
     @patch("nova.core.chat.print_message")
-    @patch("builtins.input")
     def test_interactive_chat_basic_flow(
         self,
-        mock_input,
         mock_print_message,
         mock_print_info,
         mock_print_success,
+        mock_input_handler_class,
         mock_memory_manager,
         mock_history_manager,
         mock_config_manager,
@@ -311,7 +311,11 @@ class TestChatManager:
         mock_session.conversation.id = "test123"
         mock_chat_session.return_value = mock_session
         mock_generate_ai.return_value = "AI response"
-        mock_input.side_effect = ["Hello", "/exit"]
+
+        # Mock the input handler
+        mock_input_handler = MagicMock()
+        mock_input_handler.get_input.side_effect = ["Hello", "/q"]
+        mock_input_handler_class.return_value = mock_input_handler
 
         manager = ChatManager()
         manager.start_interactive_chat()
@@ -326,10 +330,10 @@ class TestChatManager:
     @patch("nova.core.chat.config_manager")
     @patch("nova.core.chat.HistoryManager")
     @patch("nova.core.chat.MemoryManager")
-    @patch("builtins.input")
+    @patch("nova.core.chat.ChatInputHandler")
     def test_interactive_chat_keyboard_interrupt(
         self,
-        mock_input,
+        mock_input_handler_class,
         mock_memory_manager,
         mock_history_manager,
         mock_config_manager,
@@ -339,7 +343,11 @@ class TestChatManager:
         mock_config_manager.load_config.return_value = self.config
         mock_session = MagicMock()
         mock_chat_session.return_value = mock_session
-        mock_input.side_effect = KeyboardInterrupt()
+
+        # Mock the input handler to return None (simulating interrupted input)
+        mock_input_handler = MagicMock()
+        mock_input_handler.get_input.return_value = None
+        mock_input_handler_class.return_value = mock_input_handler
 
         manager = ChatManager()
 
@@ -354,10 +362,10 @@ class TestChatManager:
     @patch("nova.core.chat.config_manager")
     @patch("nova.core.chat.HistoryManager")
     @patch("nova.core.chat.MemoryManager")
-    @patch("builtins.input")
+    @patch("nova.core.chat.ChatInputHandler")
     def test_interactive_chat_command_handling(
         self,
-        mock_input,
+        mock_input_handler_class,
         mock_memory_manager,
         mock_history_manager,
         mock_config_manager,
@@ -368,7 +376,11 @@ class TestChatManager:
         mock_config_manager.load_config.return_value = self.config
         mock_session = MagicMock()
         mock_chat_session.return_value = mock_session
-        mock_input.side_effect = ["/help", "/exit"]
+
+        # Mock the input handler
+        mock_input_handler = MagicMock()
+        mock_input_handler.get_input.side_effect = ["/help", "/q"]
+        mock_input_handler_class.return_value = mock_input_handler
 
         manager = ChatManager()
         manager.start_interactive_chat()
@@ -493,7 +505,9 @@ class TestChatManager:
         manager._handle_command("/clear", mock_session)
 
         assert mock_session.conversation.messages == []
-        mock_print_success.assert_called_once_with("Conversation history cleared")
+        mock_print_success.assert_called_once_with(
+            "Conversation history and input history cleared"
+        )
 
     @patch("nova.core.chat.ChatSession")
     @patch("nova.core.chat.config_manager")
@@ -788,23 +802,27 @@ class TestChatManager:
     @patch("nova.core.chat.config_manager")
     @patch("nova.core.chat.HistoryManager")
     @patch("nova.core.chat.MemoryManager")
-    @patch("builtins.input")
+    @patch("nova.core.chat.ChatInputHandler")
     @patch("builtins.print")
     def test_interactive_chat_slash_exit_commands(
         self,
         mock_print,
-        mock_input,
+        mock_input_handler_class,
         mock_memory_manager,
         mock_history_manager,
         mock_config_manager,
         mock_chat_session,
     ):
-        """Test that /exit and /quit commands work"""
-        # Test /exit command
+        """Test that /q and /quit commands work"""
+        # Test /q command
         mock_config_manager.load_config.return_value = self.config
         mock_session = MagicMock()
         mock_chat_session.return_value = mock_session
-        mock_input.side_effect = ["/exit"]
+
+        # Mock the input handler
+        mock_input_handler = MagicMock()
+        mock_input_handler.get_input.side_effect = ["/q"]
+        mock_input_handler_class.return_value = mock_input_handler
 
         manager = ChatManager()
         manager.start_interactive_chat()
@@ -814,7 +832,7 @@ class TestChatManager:
 
         # Test /quit command
         mock_print.reset_mock()
-        mock_input.side_effect = ["/quit"]
+        mock_input_handler.get_input.side_effect = ["/quit"]
 
         manager.start_interactive_chat()
         mock_print.assert_called_with("Goodbye!")
@@ -823,29 +841,33 @@ class TestChatManager:
     @patch("nova.core.chat.config_manager")
     @patch("nova.core.chat.HistoryManager")
     @patch("nova.core.chat.MemoryManager")
-    @patch("builtins.input")
+    @patch("nova.core.chat.ChatInputHandler")
     @patch("nova.core.chat.ChatManager._generate_ai_response")
     def test_non_slash_exit_treated_as_user_input(
         self,
         mock_generate_ai,
-        mock_input,
+        mock_input_handler_class,
         mock_memory_manager,
         mock_history_manager,
         mock_config_manager,
         mock_chat_session,
     ):
-        """Test that non-slash 'exit' and 'quit' are treated as regular user input"""
+        """Test that non-slash 'q' and 'quit' are treated as regular user input"""
         mock_config_manager.load_config.return_value = self.config
         mock_session = MagicMock()
         mock_session.conversation.id = "test123"
         mock_chat_session.return_value = mock_session
         mock_generate_ai.return_value = "AI response"
-        mock_input.side_effect = ["exit", "/exit"]
+
+        # Mock the input handler
+        mock_input_handler = MagicMock()
+        mock_input_handler.get_input.side_effect = ["q", "/q"]
+        mock_input_handler_class.return_value = mock_input_handler
 
         manager = ChatManager()
         manager.start_interactive_chat()
 
         # 'exit' without slash should be treated as user input
-        mock_session.add_user_message.assert_called_with("exit")
+        mock_session.add_user_message.assert_called_with("q")
         mock_generate_ai.assert_called_once()
         mock_session.add_assistant_message.assert_called_once_with("AI response")

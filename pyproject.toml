@@ -13,6 +13,11 @@ dependencies = [
     "openai>=1.97.1",
     "anthropic>=0.60.0",
     "ollama>=0.5.1",
+    "beautifulsoup4>=4.13.4",
+    "lxml>=6.0.0",
+    "newspaper3k>=0.2.8",
+    "readability-lxml>=0.8.4.1",
+    "prompt-toolkit>=3.0.51",
 ]
 
 [project.scripts]

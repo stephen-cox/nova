@@ -147,7 +147,7 @@ While in a chat session, you can use these commands:
 - `/history` - View conversation history
 - `/clear` - Clear current conversation
 - `/title <title>` - Set a custom title for the conversation
-- `/exit` or `/quit` - Exit chat session
+- `/q` or `/quit` - Exit chat session
 - `/summarize` - Summarize conversation
 - `/tag <tags>` - Add tags to conversation
 - `/stats` - Show memory statistics

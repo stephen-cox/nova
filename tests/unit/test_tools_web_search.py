@@ -77,7 +77,7 @@ class TestWebSearchHandler:
         # Test that handler uses config defaults
         assert web_search_handler.search_config["default_provider"] == "duckduckgo"
         assert web_search_handler.search_config["max_results"] == 5
-        assert web_search_handler.search_config["use_ai_answers"] == True
+        assert web_search_handler.search_config["use_ai_answers"]
 
     @pytest.mark.asyncio
     async def test_fallback_search_method(self, web_search_handler):

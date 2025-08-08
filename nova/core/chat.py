@@ -1161,9 +1161,7 @@ Content: {content}
 
                 # Execute the tool
                 print_info(f"Executing tool: {tool_name}")
-                asyncio.create_task(
-                    self._execute_tool_direct(tool_name, arguments, session)
-                )
+                asyncio.run(self._execute_tool_direct(tool_name, arguments, session))
 
             except Exception as e:
                 print_error(f"Failed to parse arguments: {e}")
@@ -1180,7 +1178,7 @@ Content: {content}
             else:
                 # Tool doesn't need arguments, execute it
                 print_info(f"Executing tool: {tool_name}")
-                asyncio.create_task(self._execute_tool_direct(tool_name, {}, session))
+                asyncio.run(self._execute_tool_direct(tool_name, {}, session))
 
     def _show_tool_info(self, tool_name: str, session: ChatSession) -> None:
         """Show detailed information about a tool"""
@@ -1235,11 +1233,21 @@ Content: {content}
         arguments = {}
 
         try:
-            # Join args back and try to parse as space-separated key=value pairs
-            args_str = " ".join(args)
+            # Use a hybrid approach: handle JSON objects specially, use shlex for others
+            parsed_args = []
 
-            # Handle quoted strings properly
-            parsed_args = shlex.split(args_str)
+            # First, try to identify JSON objects and preserve them
+            for arg in args:
+                if "=" in arg and "{" in arg and "}" in arg:
+                    # Likely contains JSON object, don't use shlex
+                    parsed_args.append(arg)
+                else:
+                    # Use shlex for proper quote handling of non-JSON strings
+                    try:
+                        parsed_args.extend(shlex.split(arg))
+                    except ValueError:
+                        # Fallback if shlex fails
+                        parsed_args.append(arg)
 
             for arg in parsed_args:
                 if "=" in arg:

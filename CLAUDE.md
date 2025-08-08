@@ -137,6 +137,12 @@ Use these commands:
 - **Metadata Validation**: Validate user-provided metadata to prevent oversized or malicious content
 - **Performance**: Consider lazy loading and caching for operations that read multiple files
 - **Backward Compatibility**: Maintain fallback mechanisms when introducing new data formats
+- **Tool Security**: Use appropriate permission levels and validate tool inputs; prefer `@tool` decorator over manual registration
+- **Async Operations**: Prefer async/await for I/O operations; use proper timeout and resource management
+- **Performance Awareness**: Consider lazy loading, caching, and concurrent operations for better performance
+- **Resource Cleanup**: Always implement proper cleanup in async handlers and use context managers
+- **Permission-Based Security**: Tools should use proper permission levels (SAFE, ELEVATED, SYSTEM, DANGEROUS)
+- **Tool Discovery**: Use automatic tool discovery via decorators rather than manual registration
 
 ## Project Architecture
 

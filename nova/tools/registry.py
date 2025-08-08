@@ -61,7 +61,7 @@ class ToolRegistry:
 
             # Scan for submodules
             if hasattr(module, "__path__"):
-                for importer, modname, ispkg in pkgutil.iter_modules(module.__path__):
+                for _importer, modname, _ispkg in pkgutil.iter_modules(module.__path__):
                     submodule_path = f"{module_path}.{modname}"
                     self._scan_module_for_tools(submodule_path)
             else:

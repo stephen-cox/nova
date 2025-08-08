@@ -253,10 +253,9 @@ class TestToolsSystemIntegration:
         # Cleanup
         await function_registry.cleanup()
 
-        # Verify cleanup
+        # Verify cleanup (built_in_modules no longer exists)
         assert len(function_registry.tools) == 0
         assert len(function_registry.handlers) == 0
-        assert len(function_registry.built_in_modules) == 0
 
     @pytest.mark.asyncio
     async def test_tools_config_validation(self):

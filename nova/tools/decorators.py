@@ -4,7 +4,7 @@ import inspect
 from collections.abc import Callable
 from typing import Any, get_type_hints
 
-from nova.core.tools.handler import SyncToolHandler, ToolHandler
+from nova.core.tools.handler import ToolHandler
 from nova.models.tools import (
     PermissionLevel,
     ToolCategory,
@@ -14,14 +14,15 @@ from nova.models.tools import (
 )
 
 
-class DecoratedToolHandler(SyncToolHandler):
-    """Handler for decorator-defined tools"""
+class DecoratedToolHandler(ToolHandler):
+    """Handler for decorator-defined tools (supports both sync and async functions)"""
 
     def __init__(self, func: Callable, metadata: dict):
         self.func = func
         self.metadata = metadata
+        self.is_async = inspect.iscoroutinefunction(func)
 
-    def execute_sync(self, arguments: dict[str, Any], context=None) -> Any:
+    async def execute(self, arguments: dict[str, Any], context=None) -> Any:
         """Execute the decorated function with arguments"""
         try:
             # Filter arguments to match function signature
@@ -37,7 +38,17 @@ class DecoratedToolHandler(SyncToolHandler):
                 else:
                     raise ValueError(f"Missing required argument: {param_name}")
 
-            return self.func(**filtered_args)
+            # Handle both sync and async functions
+            if self.is_async:
+                return await self.func(**filtered_args)
+            else:
+                # Run sync function in thread pool to avoid blocking
+                import asyncio
+
+                loop = asyncio.get_event_loop()
+                return await loop.run_in_executor(
+                    None, lambda: self.func(**filtered_args)
+                )
         except Exception as e:
             raise RuntimeError(f"Tool execution failed: {e}") from e
 

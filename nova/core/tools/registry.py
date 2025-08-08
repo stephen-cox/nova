@@ -16,7 +16,7 @@ from nova.models.tools import (
     ToolTimeoutError,
 )
 
-from .handler import BuiltInToolModule, ToolHandler
+from .handler import ToolHandler
 from .permissions import ToolPermissionManager
 
 logger = logging.getLogger(__name__)
@@ -32,8 +32,7 @@ class FunctionRegistry:
         self.handlers: dict[str, ToolHandler] = {}
         self.permission_manager = ToolPermissionManager(self.config.permission_mode)
 
-        # Built-in tool modules (will be loaded dynamically)
-        self.built_in_modules: dict[str, BuiltInToolModule] = {}
+        # Note: Built-in tools are now discovered automatically using decorators
 
         # Statistics
         self.execution_stats = {
@@ -75,7 +74,6 @@ class FunctionRegistry:
             # Clear existing tools and re-register
             self.tools.clear()
             self.handlers.clear()
-            self.built_in_modules.clear()
             # Re-initialize with new config
             import asyncio
 
@@ -278,50 +276,72 @@ class FunctionRegistry:
         return stats
 
     async def _register_built_in_tools(self):
-        """Register all built-in tools"""
+        """Register all built-in tools using automatic discovery"""
 
-        # Import built-in tool modules
-        from nova.tools.built_in.conversation import ConversationTools
-        from nova.tools.built_in.file_ops import FileOperationsTools
-        from nova.tools.built_in.web_search import WebSearchTools
+        try:
+            # Use automatic tool discovery
+            from nova.tools.registry import discover_built_in_tools
 
-        # Initialize modules with proper configuration
-        modules = {
-            "file_ops": FileOperationsTools(),
-            "web_search": WebSearchTools(self.nova_config.search.model_dump()),
-            "conversation": ConversationTools(),
-        }
+            # Discover all built-in tools
+            discovered_tools = discover_built_in_tools()
 
-        # Register tools from enabled modules
-        enabled_modules = getattr(
-            self.config,
-            "enabled_built_in_modules",
-            ["file_ops", "web_search", "conversation"],
-        )
+            # Get enabled modules configuration
+            enabled_modules = getattr(
+                self.config,
+                "enabled_built_in_modules",
+                ["file_ops", "web_search", "conversation", "network_tools"],
+            )
 
-        for module_name, module in modules.items():
-            if module_name in enabled_modules:
-                try:
-                    # Initialize module
-                    await module.initialize()
+            # Register tools from enabled modules
+            registered_count = 0
+            for tool_name, (tool_def, handler) in discovered_tools.items():
+                # Check if tool's module is enabled
+                tool_module = self._get_tool_module_name(tool_def)
 
-                    # Get tools from module
-                    tools = await module.get_tools()
-
-                    # Register each tool
-                    for tool_def, handler in tools:
+                if tool_module in enabled_modules:
+                    try:
                         self.register_tool(tool_def, handler)
-
-                    self.built_in_modules[module_name] = module
-                    logger.info(
-                        f"Registered {len(tools)} tools from module: {module_name}"
+                        registered_count += 1
+                        logger.debug(f"Registered tool: {tool_name} from {tool_module}")
+                    except Exception as e:
+                        logger.error(f"Failed to register tool '{tool_name}': {e}")
+                        continue
+                else:
+                    logger.debug(
+                        f"Skipping disabled tool: {tool_name} from {tool_module}"
                     )
 
-                except Exception as e:
-                    logger.error(
-                        f"Failed to register tools from module '{module_name}': {e}"
-                    )
-                    continue
+            logger.info(
+                f"Registered {registered_count} built-in tools from {len(enabled_modules)} enabled modules"
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to register built-in tools: {e}")
+
+    def _get_tool_module_name(self, tool_def: ToolDefinition) -> str:
+        """Extract module name from tool definition"""
+        # Get the module name from the handler's source
+        if hasattr(tool_def, "handler") and hasattr(tool_def.handler, "func"):
+            module = getattr(tool_def.handler.func, "__module__", "")
+            if "nova.tools.built_in." in module:
+                return module.split("nova.tools.built_in.")[1]
+
+        # Fallback: try to infer from tool name or tags
+        if "file" in tool_def.tags or "directory" in tool_def.tags:
+            return "file_ops"
+        elif (
+            "web" in tool_def.tags
+            or "search" in tool_def.tags
+            or "time" in tool_def.tags
+        ):
+            return "web_search"
+        elif "conversation" in tool_def.tags or "history" in tool_def.tags:
+            return "conversation"
+        elif "network" in tool_def.tags or "ip" in tool_def.tags:
+            return "network_tools"
+
+        # Default fallback
+        return "unknown"
 
     def _get_recovery_suggestions(self, tool_name: str, error_msg: str) -> list[str]:
         """Get helpful recovery suggestions for tool errors"""
@@ -376,20 +396,12 @@ class FunctionRegistry:
         return suggestions
 
     async def cleanup(self):
-        """Cleanup all registered tools and modules"""
+        """Cleanup all registered tools and handlers"""
 
         logger.info("Cleaning up function registry")
-
-        # Cleanup built-in modules
-        for module_name, module in self.built_in_modules.items():
-            try:
-                await module.cleanup()
-            except Exception as e:
-                logger.warning(f"Failed to cleanup module '{module_name}': {e}")
 
         # Clear registries
         self.tools.clear()
         self.handlers.clear()
-        self.built_in_modules.clear()
 
         logger.info("Function registry cleanup completed")

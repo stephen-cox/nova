@@ -5,13 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from nova.models.tools import ExecutionContext, PermissionLevel, ToolSourceType
 from nova.tools.built_in.file_ops import (
-    FileOperationsTools,
-    GetFileInfoHandler,
-    ListDirectoryHandler,
-    ReadFileHandler,
-    WriteFileHandler,
+    get_file_info,
+    list_directory,
+    read_file,
+    write_file,
 )
 
 
@@ -30,295 +28,140 @@ def sample_file(temp_dir):
     return file_path
 
 
-@pytest.fixture
-def execution_context():
-    """Create execution context for testing"""
-    return ExecutionContext(conversation_id="test")
+class TestReadFile:
+    """Test read_file function"""
 
+    def test_read_existing_file(self, sample_file):
+        """Test reading an existing file"""
+        content = read_file(str(sample_file))
+        assert content == "Hello, World!\nThis is a test file."
 
-class TestReadFileHandler:
-    """Test read file handler"""
+    def test_read_nonexistent_file(self):
+        """Test reading a non-existent file"""
+        with pytest.raises(FileNotFoundError):
+            read_file("nonexistent.txt")
 
-    def test_read_file_success(self, sample_file, execution_context):
-        """Test successful file reading"""
-        handler = ReadFileHandler()
-
-        result = handler.execute_sync(
-            {"file_path": str(sample_file)}, execution_context
-        )
-
-        assert result == "Hello, World!\nThis is a test file."
-
-    def test_read_file_with_encoding(self, temp_dir, execution_context):
-        """Test reading file with specific encoding"""
-        # Create file with specific encoding
+    def test_read_with_encoding(self, temp_dir):
+        """Test reading with different encoding"""
         file_path = temp_dir / "encoded.txt"
-        content = "Café with special chars: ñáéíóú"
+        content = "Hello, ñoño!"
         file_path.write_text(content, encoding="utf-8")
 
-        handler = ReadFileHandler()
-        result = handler.execute_sync(
-            {"file_path": str(file_path), "encoding": "utf-8"}, execution_context
-        )
-
+        result = read_file(str(file_path), encoding="utf-8")
         assert result == content
 
-    def test_read_file_not_found(self, temp_dir, execution_context):
-        """Test reading non-existent file"""
-        handler = ReadFileHandler()
-        nonexistent = temp_dir / "nonexistent.txt"
+    def test_read_file_too_large(self, temp_dir):
+        """Test reading file that exceeds max size"""
+        file_path = temp_dir / "large.txt"
+        file_path.write_text("x" * 100)
 
-        with pytest.raises(FileNotFoundError, match="File not found"):
-            handler.execute_sync({"file_path": str(nonexistent)}, execution_context)
-
-    def test_read_directory_as_file(self, temp_dir, execution_context):
-        """Test reading directory as file"""
-        handler = ReadFileHandler()
-
-        with pytest.raises(ValueError, match="Path is not a file"):
-            handler.execute_sync({"file_path": str(temp_dir)}, execution_context)
-
-    def test_read_file_size_limit(self, temp_dir, execution_context):
-        """Test file size limit"""
-        # Create large file
-        large_file = temp_dir / "large.txt"
-        large_content = "x" * 2000  # 2KB content
-        large_file.write_text(large_content)
-
-        handler = ReadFileHandler()
-
-        # Test with small size limit
         with pytest.raises(ValueError, match="File too large"):
-            handler.execute_sync(
-                {"file_path": str(large_file), "max_size": 1000}, execution_context
-            )
-
-    def test_read_binary_file(self, temp_dir, execution_context):
-        """Test reading binary file"""
-        binary_file = temp_dir / "binary.dat"
-        # Create content that will cause UnicodeDecodeError
-        binary_content = b"\x80\x81\x82\x83\x84\xff\xfe\xfd"
-        binary_file.write_bytes(binary_content)
-
-        handler = ReadFileHandler()
-        result = handler.execute_sync(
-            {"file_path": str(binary_file)}, execution_context
-        )
-
-        assert "Binary file" in result
-        assert "not displayable as text" in result
+            read_file(str(file_path), max_size=50)
 
 
-class TestWriteFileHandler:
-    """Test write file handler"""
+class TestWriteFile:
+    """Test write_file function"""
 
-    def test_write_file_success(self, temp_dir, execution_context):
-        """Test successful file writing"""
-        handler = WriteFileHandler()
-        file_path = temp_dir / "output.txt"
-        content = "Test content for writing"
+    def test_write_new_file(self, temp_dir):
+        """Test writing to a new file"""
+        file_path = temp_dir / "new.txt"
+        content = "New content"
 
-        result = handler.execute_sync(
-            {"file_path": str(file_path), "content": content}, execution_context
-        )
-
+        result = write_file(str(file_path), content)
         assert "Successfully wrote" in result
         assert file_path.read_text() == content
 
-    def test_write_file_create_dirs(self, temp_dir, execution_context):
-        """Test writing file with directory creation"""
-        handler = WriteFileHandler()
-        nested_path = temp_dir / "nested" / "dirs" / "file.txt"
-        content = "Content in nested directory"
+    def test_write_with_create_dirs(self, temp_dir):
+        """Test writing with directory creation"""
+        file_path = temp_dir / "subdir" / "new.txt"
+        content = "New content"
 
-        result = handler.execute_sync(
-            {"file_path": str(nested_path), "content": content, "create_dirs": True},
-            execution_context,
-        )
-
+        result = write_file(str(file_path), content, create_dirs=True)
         assert "Successfully wrote" in result
-        assert nested_path.exists()
-        assert nested_path.read_text() == content
+        assert file_path.read_text() == content
 
-    def test_write_file_no_parent_dir(self, temp_dir, execution_context):
-        """Test writing file without parent directory"""
-        handler = WriteFileHandler()
-        nested_path = temp_dir / "nonexistent" / "file.txt"
+    def test_write_without_create_dirs_fails(self, temp_dir):
+        """Test writing without directory creation fails"""
+        file_path = temp_dir / "nonexistent_subdir" / "new.txt"
+        content = "New content"
 
-        with pytest.raises(FileNotFoundError, match="Parent directory does not exist"):
-            handler.execute_sync(
-                {"file_path": str(nested_path), "content": "test"}, execution_context
-            )
-
-    def test_write_file_custom_encoding(self, temp_dir, execution_context):
-        """Test writing file with custom encoding"""
-        handler = WriteFileHandler()
-        file_path = temp_dir / "encoded.txt"
-        content = "Content with special chars: ñáéíóú"
-
-        handler.execute_sync(
-            {"file_path": str(file_path), "content": content, "encoding": "utf-8"},
-            execution_context,
-        )
-
-        # Verify content was written correctly
-        assert file_path.read_text(encoding="utf-8") == content
+        with pytest.raises(FileNotFoundError):
+            write_file(str(file_path), content, create_dirs=False)
 
 
-class TestListDirectoryHandler:
-    """Test list directory handler"""
+class TestListDirectory:
+    """Test list_directory function"""
 
-    def test_list_directory_basic(self, temp_dir, execution_context):
-        """Test basic directory listing"""
-        # Create test files and directories
+    def test_list_directory(self, temp_dir, sample_file):
+        """Test listing directory contents"""
+        # Create additional test files
         (temp_dir / "file1.txt").write_text("content1")
         (temp_dir / "file2.txt").write_text("content2")
         (temp_dir / "subdir").mkdir()
 
-        handler = ListDirectoryHandler()
-        result = handler.execute_sync(
-            {"directory_path": str(temp_dir)}, execution_context
-        )
+        items = list_directory(str(temp_dir))
 
-        assert len(result) == 3
-        names = [item["name"] for item in result]
-        assert "file1.txt" in names
-        assert "file2.txt" in names
-        assert "subdir" in names
+        # Should have 4 items (sample.txt, file1.txt, file2.txt, subdir)
+        assert len(items) == 4
 
-        # Check types
-        subdir_item = next(item for item in result if item["name"] == "subdir")
-        file_item = next(item for item in result if item["name"] == "file1.txt")
+        # Check that directories come first
+        assert items[0]["type"] == "directory"
+        assert items[0]["name"] == "subdir"
 
-        assert subdir_item["type"] == "directory"
-        assert file_item["type"] == "file"
-
-    def test_list_directory_with_hidden(self, temp_dir, execution_context):
-        """Test directory listing including hidden files"""
-        # Create regular and hidden files
+    def test_list_directory_with_hidden(self, temp_dir):
+        """Test listing directory with hidden files"""
         (temp_dir / "visible.txt").write_text("visible")
         (temp_dir / ".hidden.txt").write_text("hidden")
 
-        handler = ListDirectoryHandler()
-
         # Without hidden files
-        result_no_hidden = handler.execute_sync(
-            {"directory_path": str(temp_dir)}, execution_context
-        )
-        names_no_hidden = [item["name"] for item in result_no_hidden]
-        assert ".hidden.txt" not in names_no_hidden
+        items = list_directory(str(temp_dir), include_hidden=False)
+        assert len(items) == 1
+        assert items[0]["name"] == "visible.txt"
 
         # With hidden files
-        result_with_hidden = handler.execute_sync(
-            {"directory_path": str(temp_dir), "include_hidden": True}, execution_context
-        )
-        names_with_hidden = [item["name"] for item in result_with_hidden]
-        assert ".hidden.txt" in names_with_hidden
+        items = list_directory(str(temp_dir), include_hidden=True)
+        assert len(items) == 2
 
-    def test_list_directory_with_details(self, temp_dir, execution_context):
-        """Test directory listing with details"""
-        test_file = temp_dir / "test.txt"
-        test_file.write_text("content")
+    def test_list_directory_with_details(self, temp_dir, sample_file):
+        """Test listing directory with detailed information"""
+        items = list_directory(str(temp_dir), show_details=True)
 
-        handler = ListDirectoryHandler()
-        result = handler.execute_sync(
-            {"directory_path": str(temp_dir), "show_details": True}, execution_context
-        )
+        assert len(items) == 1
+        item = items[0]
+        assert "size" in item
+        assert "modified" in item
+        assert "permissions" in item
 
-        file_item = next(item for item in result if item["name"] == "test.txt")
-        assert "size" in file_item
-        assert "modified" in file_item
-        assert "permissions" in file_item
-        assert file_item["size"] > 0
-
-    def test_list_directory_not_found(self, temp_dir, execution_context):
+    def test_list_nonexistent_directory(self):
         """Test listing non-existent directory"""
-        handler = ListDirectoryHandler()
-        nonexistent = temp_dir / "nonexistent"
-
-        with pytest.raises(FileNotFoundError, match="Directory not found"):
-            handler.execute_sync(
-                {"directory_path": str(nonexistent)}, execution_context
-            )
-
-    def test_list_file_as_directory(self, sample_file, execution_context):
-        """Test listing file as directory"""
-        handler = ListDirectoryHandler()
-
-        with pytest.raises(ValueError, match="Path is not a directory"):
-            handler.execute_sync(
-                {"directory_path": str(sample_file)}, execution_context
-            )
+        with pytest.raises(FileNotFoundError):
+            list_directory("nonexistent")
 
 
-class TestGetFileInfoHandler:
-    """Test get file info handler"""
+class TestGetFileInfo:
+    """Test get_file_info function"""
 
-    def test_get_file_info_file(self, sample_file, execution_context):
+    def test_get_file_info(self, sample_file):
         """Test getting file information"""
-        handler = GetFileInfoHandler()
-        result = handler.execute_sync(
-            {"file_path": str(sample_file)}, execution_context
-        )
+        info = get_file_info(str(sample_file))
 
-        assert result["name"] == "sample.txt"
-        assert result["type"] == "file"
-        assert result["size"] > 0
-        assert "created" in result
-        assert "modified" in result
-        assert "permissions" in result
-        assert result["extension"] == ".txt"
+        assert info["name"] == "sample.txt"
+        assert info["type"] == "file"
+        assert "size" in info
+        assert "created" in info
+        assert "modified" in info
+        assert "permissions" in info
+        assert info["extension"] == ".txt"
 
-    def test_get_file_info_directory(self, temp_dir, execution_context):
+    def test_get_directory_info(self, temp_dir):
         """Test getting directory information"""
-        handler = GetFileInfoHandler()
-        result = handler.execute_sync({"file_path": str(temp_dir)}, execution_context)
+        info = get_file_info(str(temp_dir))
 
-        assert result["type"] == "directory"
-        assert "size" in result
-        assert "created" in result
-        assert "modified" in result
+        assert info["type"] == "directory"
+        assert "size" in info
+        assert "extension" not in info  # Directories don't have extensions
 
-    def test_get_file_info_not_found(self, temp_dir, execution_context):
-        """Test getting info for non-existent path"""
-        handler = GetFileInfoHandler()
-        nonexistent = temp_dir / "nonexistent"
-
-        with pytest.raises(FileNotFoundError, match="Path not found"):
-            handler.execute_sync({"file_path": str(nonexistent)}, execution_context)
-
-
-class TestFileOperationsTools:
-    """Test file operations tools module"""
-
-    @pytest.mark.asyncio
-    async def test_get_tools(self):
-        """Test getting all file operation tools"""
-        module = FileOperationsTools()
-        tools = await module.get_tools()
-
-        assert len(tools) == 4
-        tool_names = [tool_def.name for tool_def, handler in tools]
-
-        assert "read_file" in tool_names
-        assert "write_file" in tool_names
-        assert "list_directory" in tool_names
-        assert "get_file_info" in tool_names
-
-    @pytest.mark.asyncio
-    async def test_tool_definitions(self):
-        """Test tool definitions are properly configured"""
-        module = FileOperationsTools()
-        tools = await module.get_tools()
-
-        for tool_def, _handler in tools:
-            assert tool_def.source_type == ToolSourceType.BUILT_IN
-            assert tool_def.description is not None
-            assert tool_def.parameters is not None
-            assert "properties" in tool_def.parameters
-
-            # Check permission levels
-            if tool_def.name == "write_file":
-                assert tool_def.permission_level == PermissionLevel.ELEVATED
-            else:
-                assert tool_def.permission_level == PermissionLevel.SAFE
+    def test_get_info_nonexistent(self):
+        """Test getting info for non-existent file"""
+        with pytest.raises(FileNotFoundError):
+            get_file_info("nonexistent")

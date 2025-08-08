@@ -343,19 +343,11 @@ class TestFunctionRegistry:
         )
         function_registry.register_tool(tool, MockToolHandler())
 
-        # Mock built-in module
-        mock_module = AsyncMock()
-        function_registry.built_in_modules["test_module"] = mock_module
-
         await function_registry.cleanup()
 
-        # Check cleanup was called
-        mock_module.cleanup.assert_called_once()
-
-        # Check registries were cleared
+        # Check registries were cleared (built_in_modules no longer exists)
         assert len(function_registry.tools) == 0
         assert len(function_registry.handlers) == 0
-        assert len(function_registry.built_in_modules) == 0
 
     def test_get_recovery_suggestions(self, function_registry):
         """Test recovery suggestions for errors"""

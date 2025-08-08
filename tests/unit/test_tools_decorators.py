@@ -101,7 +101,7 @@ class TestDecoratedToolHandler:
         """Test that handler executes the decorated function correctly"""
         tool_def, handler = get_tool_metadata(simple_tool)
 
-        result = handler.execute_sync({"input_text": "hello", "multiplier": 3}, None)
+        result = await handler.execute({"input_text": "hello", "multiplier": 3}, None)
         assert result == "hellohellohello"
 
     @pytest.mark.asyncio
@@ -109,7 +109,7 @@ class TestDecoratedToolHandler:
         """Test handler uses defaults when arguments not provided"""
         tool_def, handler = get_tool_metadata(simple_tool)
 
-        result = handler.execute_sync({"input_text": "test"}, None)
+        result = await handler.execute({"input_text": "test"}, None)
         assert result == "test"  # multiplier defaults to 1
 
     @pytest.mark.asyncio
@@ -121,7 +121,7 @@ class TestDecoratedToolHandler:
             RuntimeError,
             match="Tool execution failed: Missing required argument: input_text",
         ):
-            handler.execute_sync({"multiplier": 2}, None)
+            await handler.execute({"multiplier": 2}, None)
 
     @pytest.mark.asyncio
     async def test_handler_filters_extra_args(self):
@@ -129,7 +129,7 @@ class TestDecoratedToolHandler:
         tool_def, handler = get_tool_metadata(simple_tool)
 
         # Should work fine even with extra arguments
-        result = handler.execute_sync(
+        result = await handler.execute(
             {"input_text": "test", "multiplier": 2, "extra_arg": "ignored"}, None
         )
         assert result == "testtest"

@@ -129,14 +129,14 @@ class FunctionRegistry:
                 raise ToolExecutionError(tool_name, f"Argument validation failed: {e}")
 
         # Execute with timeout and error handling
-        start_time = time.time()
+        start_time = time.perf_counter()
         try:
             result = await asyncio.wait_for(
                 handler.execute(arguments, context),
                 timeout=self.config.execution_timeout,
             )
 
-            execution_time = int((time.time() - start_time) * 1000)
+            execution_time = max(1, int((time.perf_counter() - start_time) * 1000))
             self.execution_stats["successful_calls"] += 1
             self.execution_stats["total_execution_time"] += execution_time
 
@@ -152,7 +152,7 @@ class FunctionRegistry:
             )
 
         except TimeoutError:
-            execution_time = int((time.time() - start_time) * 1000)
+            execution_time = max(1, int((time.perf_counter() - start_time) * 1000))
             self.execution_stats["failed_calls"] += 1
             error_msg = (
                 f"Tool execution timed out after {self.config.execution_timeout}s"
@@ -162,7 +162,7 @@ class FunctionRegistry:
             raise ToolTimeoutError(error_msg)
 
         except Exception as e:
-            execution_time = int((time.time() - start_time) * 1000)
+            execution_time = max(1, int((time.perf_counter() - start_time) * 1000))
             self.execution_stats["failed_calls"] += 1
 
             if isinstance(e, ToolError):

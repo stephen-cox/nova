@@ -7,6 +7,7 @@ from rich.console import Console
 
 from nova.cli.chat import chat_app
 from nova.cli.config import config_app
+from nova.cli.tools import tools_app
 
 app = typer.Typer(
     name="nova",
@@ -28,6 +29,7 @@ app.state = AppState()
 # Add subcommands
 app.add_typer(chat_app, name="chat", help="Chat commands")
 app.add_typer(config_app, name="config", help="Configuration commands")
+app.add_typer(tools_app, name="tools", help="Tools management commands")
 
 
 @app.command()

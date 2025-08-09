@@ -72,6 +72,15 @@ def show_config(
                 "Configured" if config.search.bing.get("api_key") else "Not configured",
             )
 
+        # Show tools configuration
+        tools_config = config.get_effective_tools_config()
+        table.add_row("Tools Enabled", str(tools_config.enabled))
+        table.add_row("Permission Mode", tools_config.permission_mode)
+        table.add_row(
+            "Enabled Modules", ", ".join(tools_config.enabled_built_in_modules)
+        )
+        table.add_row("Execution Timeout", f"{tools_config.execution_timeout}s")
+
         console.print(table)
 
     except ConfigError as e:
@@ -132,11 +141,19 @@ def list_profiles(
         table.add_column("Profile", style="cyan")
         table.add_column("Provider", style="green")
         table.add_column("Model", style="yellow")
+        table.add_column("Tools Config", style="blue")
         table.add_column("Active", style="red")
 
         for profile_name, profile in config.profiles.items():
             is_active = "✓" if config.active_profile == profile_name else ""
-            table.add_row(profile_name, profile.provider, profile.model_name, is_active)
+            has_tools_config = "Custom" if profile.tools is not None else "Global"
+            table.add_row(
+                profile_name,
+                profile.provider,
+                profile.model_name,
+                has_tools_config,
+                is_active,
+            )
 
         console.print(table)
 
@@ -181,6 +198,182 @@ def set_profile(
         profile = config.profiles[profile_name]
         print_success(
             f"Activated profile '{profile_name}' ({profile.provider}/{profile.model_name})"
+        )
+
+    except ConfigError as e:
+        print_error(f"Configuration error: {e}")
+        raise typer.Exit(1)
+
+
+@config_app.command("show-tools")
+def show_profile_tools(
+    profile_name: str = typer.Argument(help="Profile name to show tools config"),
+    config_file: Path | None = typer.Option(
+        None, "--file", "-f", help="Configuration file to read from"
+    ),
+):
+    """Show tools configuration for a specific profile"""
+    try:
+        if not config_file:
+            from nova.main import app
+
+            config_file = (
+                app.state.config_file if hasattr(app.state, "config_file") else None
+            )
+
+        config = config_manager.load_config(config_file)
+
+        if profile_name not in config.profiles:
+            print_error(f"Profile '{profile_name}' not found")
+            raise typer.Exit(1)
+
+        profile = config.profiles[profile_name]
+
+        print_info(f"Tools configuration for profile '{profile_name}':")
+
+        table = Table()
+        table.add_column("Setting", style="cyan")
+        table.add_column("Value", style="white")
+        table.add_column("Source", style="yellow")
+
+        if profile.tools is not None:
+            # Profile has custom tools config
+            tools_config = profile.tools
+            source = "Profile"
+        else:
+            # Using global config
+            tools_config = config.tools
+            source = "Global"
+
+        table.add_row("Tools Enabled", str(tools_config.enabled), source)
+        table.add_row("Permission Mode", tools_config.permission_mode, source)
+        table.add_row(
+            "Enabled Modules", ", ".join(tools_config.enabled_built_in_modules), source
+        )
+        table.add_row("Execution Timeout", f"{tools_config.execution_timeout}s", source)
+        table.add_row(
+            "Max Concurrent Tools", str(tools_config.max_concurrent_tools), source
+        )
+        table.add_row("Tool Suggestions", str(tools_config.tool_suggestions), source)
+        table.add_row("Execution Logging", str(tools_config.execution_logging), source)
+
+        console.print(table)
+
+    except ConfigError as e:
+        print_error(f"Configuration error: {e}")
+        raise typer.Exit(1)
+
+
+@config_app.command("set-profile-tools")
+def set_profile_tools(
+    profile_name: str = typer.Argument(help="Profile name to configure"),
+    permission_mode: str = typer.Option(
+        None, "--permission-mode", help="Permission mode (auto, prompt, deny)"
+    ),
+    enabled_modules: str = typer.Option(
+        None, "--modules", help="Comma-separated list of enabled modules"
+    ),
+    enabled: bool = typer.Option(
+        None, "--enabled/--disabled", help="Enable/disable tools"
+    ),
+    config_file: Path | None = typer.Option(
+        None, "--file", "-f", help="Configuration file to update"
+    ),
+):
+    """Configure tools settings for a specific profile"""
+    try:
+        if not config_file:
+            from nova.main import app
+
+            config_file = (
+                app.state.config_file if hasattr(app.state, "config_file") else None
+            )
+
+        config = config_manager.load_config(config_file)
+
+        if profile_name not in config.profiles:
+            print_error(f"Profile '{profile_name}' not found")
+            raise typer.Exit(1)
+
+        profile = config.profiles[profile_name]
+
+        # Import ToolsConfig here to avoid circular import
+        from nova.models.config import ToolsConfig
+
+        # Create custom tools config if it doesn't exist
+        if profile.tools is None:
+            # Start with global config as base
+            profile.tools = ToolsConfig(**config.tools.model_dump())
+
+        # Update settings if provided
+        if enabled is not None:
+            profile.tools.enabled = enabled
+
+        if permission_mode is not None:
+            if permission_mode not in ["auto", "prompt", "deny"]:
+                print_error("Permission mode must be one of: auto, prompt, deny")
+                raise typer.Exit(1)
+            profile.tools.permission_mode = permission_mode
+
+        if enabled_modules is not None:
+            modules = [m.strip() for m in enabled_modules.split(",") if m.strip()]
+            profile.tools.enabled_built_in_modules = modules
+
+        # Save config
+        if not config_file:
+            config_file = Path("nova-config.yaml")
+
+        config_manager.save_config(config, config_file)
+
+        print_success(f"Updated tools configuration for profile '{profile_name}'")
+
+        # Show updated configuration
+        print_info("Updated configuration:")
+        tools_config = profile.tools
+        print_info(f"  Tools Enabled: {tools_config.enabled}")
+        print_info(f"  Permission Mode: {tools_config.permission_mode}")
+        print_info(
+            f"  Enabled Modules: {', '.join(tools_config.enabled_built_in_modules)}"
+        )
+
+    except ConfigError as e:
+        print_error(f"Configuration error: {e}")
+        raise typer.Exit(1)
+
+
+@config_app.command("reset-profile-tools")
+def reset_profile_tools(
+    profile_name: str = typer.Argument(help="Profile name to reset"),
+    config_file: Path | None = typer.Option(
+        None, "--file", "-f", help="Configuration file to update"
+    ),
+):
+    """Reset profile tools configuration to use global settings"""
+    try:
+        if not config_file:
+            from nova.main import app
+
+            config_file = (
+                app.state.config_file if hasattr(app.state, "config_file") else None
+            )
+
+        config = config_manager.load_config(config_file)
+
+        if profile_name not in config.profiles:
+            print_error(f"Profile '{profile_name}' not found")
+            raise typer.Exit(1)
+
+        profile = config.profiles[profile_name]
+        profile.tools = None  # Reset to use global config
+
+        # Save config
+        if not config_file:
+            config_file = Path("nova-config.yaml")
+
+        config_manager.save_config(config, config_file)
+
+        print_success(
+            f"Reset tools configuration for profile '{profile_name}' to use global settings"
         )
 
     except ConfigError as e:

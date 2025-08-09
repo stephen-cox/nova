@@ -1,7 +1,9 @@
 # MCP (Model Context Protocol) Integration Plan
 
 ## Overview
-Add comprehensive Model Context Protocol (MCP) support to Nova AI Assistant, enabling integration with external tools, services, and data sources through standardized MCP servers.
+Add comprehensive Model Context Protocol (MCP) support to Nova AI Assistant as part of the unified tools and function calling system, enabling seamless integration with external tools, services, and data sources through standardized MCP servers.
+
+**Note**: This plan is integrated with the [Unified Tools and Function Calling Plan](./unified-tools-function-calling.md) to provide a cohesive tool ecosystem.
 
 ## MCP Background
 
@@ -12,23 +14,44 @@ Model Context Protocol (MCP) is an open standard that enables AI assistants to c
 - **Prompts**: Reusable prompt templates
 - **Sampling**: AI model interaction capabilities
 
-### MCP Architecture
+### Unified Architecture
 ```
-┌─────────────────┐    MCP Protocol    ┌─────────────────┐
-│   Nova Client   │ ◄──────────────► │   MCP Server    │
-│   (MCP Client)  │                   │  (Tool/Service) │
-└─────────────────┘                   └─────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                   Nova AI Assistant                     │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │           Unified Function Registry              │   │
+│  │  ┌─────────────┐  ┌─────────────┐ ┌────────────┐ │   │
+│  │  │ Built-in    │  │ MCP Tools   │ │ User Tools │ │   │
+│  │  │ Tools       │  │ (via MCP    │ │ (Custom)   │ │   │
+│  │  │             │  │  Servers)   │ │            │ │   │
+│  │  └─────────────┘  └─────────────┘ └────────────┘ │   │
+│  └─────────────────────────────────────────────────┘   │
+│                         │                               │
+│                         ▼                               │
+│           ┌─────────────────────────────┐               │
+│           │     AI Clients with         │               │
+│           │   Function Calling          │               │
+│           │ (OpenAI, Anthropic, Ollama) │               │
+│           └─────────────────────────────┘               │
+└─────────────────────────────────────────────────────────┘
+                         │
+                         ▼ MCP Protocol
+        ┌─────────────────┐    ┌─────────────────┐
+        │   MCP Server    │    │   MCP Server    │
+        │  (Filesystem)   │    │   (GitHub)      │
+        └─────────────────┘    └─────────────────┘
 ```
 
 ## Architecture Design
 
-### 1. MCP Client Integration
-- **Location**: `nova/core/mcp/`
-- **Purpose**: Core MCP client implementation and server management
+### 1. MCP Integration within Unified System
+- **Location**: `nova/core/tools/mcp/`
+- **Purpose**: MCP client implementation that integrates with the unified function registry
 - **Key Components**:
   - `MCPClient`: Main MCP protocol client
   - `MCPServerManager`: Manage multiple MCP server connections
   - `MCPTransport`: Handle different transport mechanisms (stdio, HTTP, WebSocket)
+  - `MCPToolHandler`: Adapter to convert MCP tools to unified tool interface
   - `MCPRegistry`: Server discovery and configuration
 
 ### 2. MCP Protocol Implementation
@@ -38,19 +61,81 @@ Model Context Protocol (MCP) is an open standard that enables AI assistants to c
   - **HTTP**: REST API-based servers
   - **WebSocket**: Real-time bidirectional servers
 - **Message Types**:
-  - Tools (function calling)
-  - Resources (data access)
-  - Prompts (template sharing)
-  - Sampling (AI model calls)
+  - Tools (function calling) → Integrated with unified function registry
+  - Resources (data access) → Exposed as specialized tools
+  - Prompts (template sharing) → Integrated with Nova's prompt system
+  - Sampling (AI model calls) → Advanced feature for meta-AI workflows
 
-### 3. Configuration Extension
-- **Location**: `nova/models/config.py`
-- **New Models**:
-  - `MCPConfig`: MCP-specific configuration
-  - `MCPServer`: Individual server configuration
-  - Integration with existing `NovaConfig`
+### 3. Integration with Unified Function Registry
+```python
+# nova/core/tools/mcp/mcp_integration.py
+class MCPToolHandler(ToolHandler):
+    """Adapter to execute MCP tools through unified interface"""
 
-## Core Features
+    def __init__(self, mcp_client: MCPClient, server_name: str, tool_name: str):
+        self.mcp_client = mcp_client
+        self.server_name = server_name
+        self.tool_name = tool_name
+
+    async def execute(self, arguments: dict, context: ExecutionContext) -> Any:
+        """Execute MCP tool and return result"""
+        return await self.mcp_client.call_tool(
+            self.server_name,
+            self.tool_name,
+            arguments
+        )
+
+class MCPIntegrationManager:
+    """Manages MCP integration with unified function registry"""
+
+    def __init__(self, function_registry: FunctionRegistry):
+        self.function_registry = function_registry
+        self.mcp_client: Optional[MCPClient] = None
+        self.active_servers: Dict[str, MCPServerConnection] = {}
+
+    async def initialize(self, mcp_config: MCPConfig):
+        """Initialize MCP integration"""
+        if not mcp_config.enabled:
+            return
+
+        self.mcp_client = MCPClient(mcp_config)
+        await self._start_configured_servers(mcp_config.servers)
+        await self._register_mcp_tools()
+
+    async def _register_mcp_tools(self):
+        """Register all MCP tools with the unified function registry"""
+        if not self.mcp_client:
+            return
+
+        mcp_tools = await self.mcp_client.list_all_tools()
+        for server_name, server_tools in mcp_tools.items():
+            for mcp_tool in server_tools:
+                # Convert MCP tool to unified tool definition
+                tool_def = self._convert_mcp_tool_to_unified(mcp_tool, server_name)
+
+                # Create handler for this MCP tool
+                handler = MCPToolHandler(self.mcp_client, server_name, mcp_tool.name)
+
+                # Register with unified function registry
+                self.function_registry.register_tool(tool_def, handler)
+
+    def _convert_mcp_tool_to_unified(self, mcp_tool: MCPTool, server_name: str) -> ToolDefinition:
+        """Convert MCP tool definition to unified format"""
+        return ToolDefinition(
+            name=f"mcp_{server_name}_{mcp_tool.name}",
+            description=f"[{server_name}] {mcp_tool.description}",
+            parameters=mcp_tool.input_schema,
+            source_type=ToolSourceType.MCP_SERVER,
+            source_id=server_name,
+            permission_level=self._determine_permission_level(mcp_tool),
+            category=self._categorize_tool(mcp_tool),
+            tags=[server_name, "mcp"] + (mcp_tool.tags or [])
+        )
+```
+
+## Core MCP Features
+
+**Note**: All MCP tools are exposed through the unified function calling interface - users interact with them seamlessly alongside built-in tools.
 
 ### 1. MCP Server Management
 
@@ -469,64 +554,48 @@ mcp-dev = [
 ]
 ```
 
-## Implementation Phases
+## Implementation Integration with Unified System
 
-### Phase 1: Core MCP Client (3-4 weeks)
-**Scope**: Basic MCP protocol implementation
-- MCP protocol client with stdio transport
-- Basic server management and connection handling
-- Tool execution framework
-- Configuration models and basic chat commands
+**Note**: MCP implementation is integrated into the unified tools system phases:
 
-**Features**:
-- Connect to stdio-based MCP servers
-- Execute tools with function calling
-- Basic server lifecycle management
-- Configuration via YAML files
+### Phase 1: Integrated with Unified Tools Core (Week 2-3 of unified plan)
+**Scope**: Basic MCP integration alongside built-in tools
+- `MCPClient` core implementation with stdio transport
+- `MCPIntegrationManager` for registry integration
+- Basic MCP tool registration and execution
+- MCP server lifecycle management
 
-**Deliverables**:
-- `MCPClient` core implementation
-- `StdioTransport` for process-based servers
-- Basic configuration models
-- Essential chat commands (`/mcp status`, `/mcp tools`)
+**Integration Points**:
+- MCP tools registered in unified `FunctionRegistry`
+- MCP tools available through standard AI function calling
+- Unified permission system covers MCP tools
+- Standard chat commands work with MCP tools
 
-### Phase 2: Multi-Transport and Resources (2-3 weeks)
-**Scope**: Full transport support and resource access
-- HTTP and WebSocket transport implementations
-- Resource reading and management
-- Server auto-discovery
-- Enhanced error handling and reconnection
-
-**Features**:
-- Support for HTTP and WebSocket MCP servers
-- Resource access and content reading
-- Automatic server discovery and installation helpers
-- Robust error handling and reconnection logic
-
-**Deliverables**:
-- `HTTPTransport` and `WebSocketTransport`
-- `MCPResourceManager` for resource access
-- `MCPServerRegistry` for server discovery
-- Enhanced chat commands for resource management
-
-### Phase 3: Advanced Features and Integration (2-3 weeks)
-**Scope**: Prompt integration, optimization, and polish
+### Phase 2: Full MCP Features (Week 4-6 of unified plan)
+**Scope**: Complete MCP protocol support and advanced features
+- Multi-transport support (HTTP, WebSocket, stdio)
+- Resource access and management
 - MCP prompt integration with Nova's prompt system
-- Performance optimization and caching
-- Comprehensive testing and documentation
-- Popular server configurations and helpers
+- Server auto-discovery and installation helpers
 
-**Features**:
-- MCP prompt synchronization with local library
-- Request caching and performance optimization
-- Comprehensive server configuration templates
-- Full documentation and user guides
+**Integration Points**:
+- MCP resources exposed as specialized tools
+- MCP prompts sync with Nova's prompt library
+- Advanced MCP features in unified tool suggestion engine
+- Comprehensive MCP server management
 
-**Deliverables**:
-- `MCPPromptProvider` for prompt integration
-- Performance optimizations and caching
+### Phase 3: MCP Optimization and Polish (Week 7-8 of unified plan)
+**Scope**: Performance optimization and ecosystem integration
+- Performance optimization and caching for MCP calls
 - Popular MCP server configuration templates
-- Complete documentation and examples
+- Advanced MCP workflows and automation
+- Community MCP server discovery
+
+**Integration Points**:
+- MCP tools participate in unified tool workflows
+- MCP server marketplace and discovery
+- Advanced MCP analytics and monitoring
+- Complete integration testing
 
 ## Popular MCP Servers to Support
 
@@ -558,47 +627,47 @@ mcp-dev = [
 
 ## Usage Examples
 
-### Basic Tool Usage
+### Seamless AI Integration (Primary Usage)
 ```bash
-# Start Nova with MCP support
-nova config set mcp.enabled true
-nova chat start
+# User interactions are identical to built-in tools - MCP tools work transparently
 
-# List available MCP tools
-/mcp tools
+# User: "Read the README.md file in my project"
+# → AI automatically calls mcp_filesystem_read_file if filesystem MCP server is active
+# → Or falls back to built-in read_file tool
 
-# The AI can now automatically use MCP tools:
-"Can you read the README.md file in my current project?"
-# → Automatically calls filesystem MCP server
+# User: "Search GitHub for Python async examples"
+# → AI calls mcp_github_search tool automatically
 
-"What's the weather like in San Francisco?"
-# → Calls weather MCP server if configured
+# User: "What's the weather like in San Francisco?"
+# → AI calls mcp_weather_get_current tool if weather MCP server configured
+
+# User: "List all my tasks and analyze the database"
+# → AI calls built-in list_tasks AND mcp_sqlite_query seamlessly
 ```
 
-### Resource Access
+### Unified Tool Interface
 ```bash
-# List available resources
-/mcp resources
+# All tools (built-in and MCP) appear in unified commands
+/tools list                          # Shows ALL available tools
+/tools list --source mcp_server      # Filter to MCP tools only
+/tools list --source built_in        # Filter to built-in tools
 
-# Read specific resource
-/mcp read file:///Users/user/Documents/project.md
-
-# The AI can access resources contextually:
-"Analyze the data in my sales database"
-# → Accesses SQLite MCP server to query database
+# Execute any tool directly
+/tool mcp_github_search --query "python async"
+/tool mcp_filesystem_read --path README.md
 ```
 
-### Server Management
+### MCP-Specific Management
 ```bash
-# Check server status
-/mcp status
+# MCP server management
+/mcp status                    # Show MCP server status
+/mcp start github             # Start GitHub MCP server
+/mcp stop filesystem          # Stop filesystem MCP server
+/mcp install brave-search     # Install new MCP server
 
-# Start/stop specific servers
-/mcp start github
-/mcp stop filesystem
-
-# Install new MCP server
-nova mcp install brave-search
+# MCP resource access (exposed as tools)
+/tool mcp_filesystem_list --directory /Users/user/Documents
+/tool mcp_database_query --query "SELECT * FROM users LIMIT 10"
 ```
 
 ## Security and Safety Considerations
@@ -664,13 +733,19 @@ class MCPSecurityManager:
 
 ---
 
-**Status**: Planning Phase
+**Status**: Planning Phase - Integrated with Unified Tools Plan
 **Priority**: High
-**Estimated Effort**: 7-10 weeks total
-**Dependencies**: Core chat system stable, Function calling implemented
+**Estimated Effort**: Integrated into 8-12 week unified tools plan
+**Dependencies**: Unified function calling infrastructure, Core chat system stable
+**Integration Notes**:
+- MCP implementation runs parallel to built-in tool development
+- Shared infrastructure reduces total development time
+- Unified user experience from day one
+- No separate MCP learning curve for users
+
 **Next Steps**:
-1. Review MCP specification and reference implementations
+1. Begin unified tools infrastructure (includes MCP integration points)
 2. Set up development environment with test MCP servers
-3. Begin Phase 1 implementation
-4. Create comprehensive testing framework
-5. Engage with MCP community for feedback and validation
+3. Implement MCP client alongside built-in tools (Phase 1)
+4. Create comprehensive testing framework covering both systems
+5. Engage with MCP community for validation and popular server support

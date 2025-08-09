@@ -13,7 +13,7 @@ Nova is an AI research and personal assistant written in Python that provides:
 - **Custom prompt templating system** with built-in templates and user-defined prompts
 - Modular architecture for extensibility
 
-**Current Status:** Phase 3 complete (Custom Prompting), supports OpenAI, Anthropic, and Ollama with custom prompt templates.
+**Current Status:** Phase 4 complete (Tools Integration), supports OpenAI, Anthropic, and Ollama with custom prompt templates and comprehensive tools system with profile-based configuration.
 
 ## Package Management Commands
 
@@ -44,6 +44,20 @@ Use these commands:
 - Search prompt templates: `/prompts search <query>`
 - Apply a prompt template: `/prompt <name>`
 - Templates are stored in `~/.nova/prompts/user/custom/` (user-defined) and built-in templates
+
+## Profile-Based Tools Configuration Commands
+
+**Profile Tools Management:**
+- Show tools config for profile: `uv run nova config show-tools <profile_name>`
+- Configure tools for profile: `uv run nova config set-profile-tools <profile_name> --permission-mode <mode> --modules <modules> --enabled/--disabled`
+- Reset profile to global tools: `uv run nova config reset-profile-tools <profile_name>`
+- List profiles with tools info: `uv run nova config profiles`
+
+**Profile Tools Features:**
+- Each AI profile can have custom tools configuration
+- Profiles inherit global tools settings by default
+- Override specific settings per profile (permission mode, enabled modules, etc.)
+- Use "Global" or "Custom" tools configuration per profile
 
 ## Testing Commands
 
@@ -123,6 +137,12 @@ Use these commands:
 - **Metadata Validation**: Validate user-provided metadata to prevent oversized or malicious content
 - **Performance**: Consider lazy loading and caching for operations that read multiple files
 - **Backward Compatibility**: Maintain fallback mechanisms when introducing new data formats
+- **Tool Security**: Use appropriate permission levels and validate tool inputs; prefer `@tool` decorator over manual registration
+- **Async Operations**: Prefer async/await for I/O operations; use proper timeout and resource management
+- **Performance Awareness**: Consider lazy loading, caching, and concurrent operations for better performance
+- **Resource Cleanup**: Always implement proper cleanup in async handlers and use context managers
+- **Permission-Based Security**: Tools should use proper permission levels (SAFE, ELEVATED, SYSTEM, DANGEROUS)
+- **Tool Discovery**: Use automatic tool discovery via decorators rather than manual registration
 
 ## Project Architecture
 

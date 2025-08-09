@@ -1,20 +1,23 @@
 """Core chat session management"""
 
+import asyncio
 import logging
 import os
 import uuid
 from datetime import datetime
 from pathlib import Path
 
-from nova.core.ai_client import AIError, generate_sync_response
+from nova.core.ai_client import AIError, create_ai_client, generate_sync_response
 from nova.core.config import config_manager
 from nova.core.history import HistoryManager
 from nova.core.input_handler import ChatInputHandler
 from nova.core.memory import MemoryManager
 from nova.core.prompts import PromptManager
 from nova.core.search import SearchError, search_web
+from nova.core.tools import FunctionRegistry
 from nova.models.config import NovaConfig
 from nova.models.message import Conversation, MessageRole
+from nova.models.tools import ExecutionContext
 from nova.utils.formatting import (
     print_error,
     print_info,
@@ -34,6 +37,20 @@ class ChatSession:
         self.config = config
         self.history_manager = HistoryManager(config.chat.history_dir)
         self.memory_manager = MemoryManager(config.get_active_ai_config())
+
+        # Initialize function registry if tools are enabled
+        self.function_registry = None
+        if (
+            getattr(config, "tools", None)
+            and config.get_effective_tools_config().enabled
+        ):
+            self.function_registry = FunctionRegistry(config)
+            # Initialize asynchronously - we'll handle this in the chat manager
+
+        # Create AI client with function registry
+        self.ai_client = create_ai_client(
+            config.get_active_ai_config(), self.function_registry
+        )
 
         if conversation_id:
             # Try to load existing conversation
@@ -140,6 +157,18 @@ class ChatManager:
         )
         self.input_handler = ChatInputHandler()
 
+    async def _initialize_session_tools(self, session: ChatSession) -> None:
+        """Initialize tools for a chat session"""
+        if session.function_registry:
+            try:
+                await session.function_registry.initialize()
+                tool_count = len(session.function_registry.list_tool_names())
+                if tool_count > 0:
+                    print_info(f"🔧 Initialized {tool_count} tools")
+            except Exception as e:
+                print_warning(f"Failed to initialize tools: {e}")
+                session.function_registry = None
+
     def start_interactive_chat(self, session_name: str | None = None) -> None:
         """Start an interactive chat session"""
 
@@ -163,6 +192,10 @@ class ChatManager:
 
         # Create or load session
         session = ChatSession(self.config, session_name)
+
+        # Initialize tools asynchronously
+        if session.function_registry:
+            asyncio.run(self._initialize_session_tools(session))
 
         if session_name:
             print_info(f"Loaded session: {session_name}")
@@ -263,6 +296,10 @@ class ChatManager:
             print("  /prompt <name> - Apply a prompt template")
             print("  /prompts  - List available prompt templates")
             print("  /prompts search <query> - Search prompt templates")
+            print("  /tools    - List available tools")
+            print("  /tool <name> [args] - Execute a specific tool")
+            print("  /tool info <name> - Get information about a tool")
+            print("  /permissions - Manage tool permissions")
             print("  /q, /quit - End session")
 
         elif cmd == "/history":
@@ -370,6 +407,15 @@ class ChatManager:
 
         elif cmd.startswith("/prompts "):
             self._handle_prompts_search_command(command[9:].strip(), session)
+
+        elif cmd == "/tools":
+            self._handle_tools_list_command(session)
+
+        elif cmd.startswith("/tool "):
+            self._handle_tool_command(command[6:].strip(), session)
+
+        elif cmd == "/permissions":
+            self._handle_permissions_command(session)
 
         else:
             print_error(f"Unknown command: {command}")
@@ -491,28 +537,75 @@ class ChatManager:
             print_error(f"Unexpected search error: {e}")
 
     def _generate_ai_response(self, session: ChatSession) -> str:
-        """Generate AI response using configured provider"""
+        """Generate AI response using configured provider with tool support"""
 
         # Get optimized conversation context using memory management
         context_messages = session.get_context_messages()
 
+        # Create execution context for tools
+        execution_context = ExecutionContext(
+            conversation_id=str(session.conversation.id),
+            working_directory=os.getcwd(),
+            session_data={},
+        )
+
         # Add system message if needed
         messages = []
-
-        # Get active AI config
         active_config = self.config.get_active_ai_config()
+
+        # Get available tools if function registry is enabled
+        available_tools = None
+        if session.function_registry:
+            try:
+                available_tools = session.function_registry.get_openai_tools_schema(
+                    execution_context
+                )
+            except Exception as e:
+                logger.warning(f"Failed to get tools schema: {e}")
 
         # Add a system message to set context
         if active_config.provider in ["openai", "ollama"]:
             system_message = self._build_system_prompt(session)
+
+            # Add tool information to system message
+            if available_tools:
+                system_message += f"\n\nYou have access to {len(available_tools)} tools that you can use to help the user. Use them when appropriate to provide better assistance."
+
             if system_message:
                 messages.append({"role": "system", "content": system_message})
 
         # Add conversation history (already optimized by memory manager)
         messages.extend(context_messages)
 
-        # Generate response using AI client
+        # Generate response using AI client with tool support
         try:
+            if available_tools and hasattr(
+                session.ai_client, "generate_response_with_tools"
+            ):
+                # Use the async tool-aware method
+                try:
+                    response_coro = session.ai_client.generate_response_with_tools(
+                        messages=messages,
+                        available_tools=available_tools,
+                        context=execution_context,
+                    )
+
+                    # Check if it's actually a coroutine (for test compatibility)
+                    if hasattr(response_coro, "__await__"):
+                        tool_response = asyncio.run(response_coro)
+                    else:
+                        # Handle mock objects in tests
+                        tool_response = response_coro
+
+                    # Format the response with tool information if tools were used
+                    return self._format_tool_aware_response(tool_response)
+                except Exception as e:
+                    logger.warning(
+                        f"Tool-aware response failed: {e}, falling back to regular response"
+                    )
+                    # Fall through to regular response
+
+            # Fallback to regular response
             response = generate_sync_response(config=active_config, messages=messages)
             return (
                 response.strip()
@@ -521,7 +614,35 @@ class ChatManager:
             )
 
         except Exception as e:
+            logger.error(f"AI response generation failed: {e}")
             raise AIError(f"Failed to generate response: {e}")
+
+    def _format_tool_aware_response(self, tool_response) -> str:
+        """Format response that may include tool usage"""
+
+        response_parts = [tool_response.content]
+
+        # Add subtle indicators for tool usage (don't overwhelm the user)
+        successful_tools = [r for r in tool_response.tool_results if r.success]
+        if successful_tools and len(successful_tools) > 1:
+            # Only mention tools if multiple were used
+            response_parts.append(
+                f"\n*Used {len(successful_tools)} tools to help with this response*"
+            )
+
+        # Show failed tools as warnings
+        failed_tools = [r for r in tool_response.tool_results if not r.success]
+        if failed_tools:
+            response_parts.append(
+                f"\n*Note: {len(failed_tools)} tool(s) failed to execute*"
+            )
+            for failed_tool in failed_tools:
+                if failed_tool.error:
+                    response_parts.append(
+                        f"  - {failed_tool.tool_name}: {failed_tool.error}"
+                    )
+
+        return "\n".join(response_parts)
 
     def _generate_search_response(
         self, query: str, search_response, session: ChatSession = None
@@ -935,3 +1056,338 @@ Content: {content}
             if template.tags:
                 print(f"  Tags: {', '.join(template.tags)}")
             print()
+
+    def _handle_tools_list_command(self, session: ChatSession) -> None:
+        """Handle /tools command for listing available tools"""
+
+        if not session.function_registry:
+            print_info("Tools system is not enabled")
+            return
+
+        try:
+            # Get execution context
+            execution_context = ExecutionContext(
+                conversation_id=session.conversation.id, working_directory=os.getcwd()
+            )
+
+            available_tools = session.function_registry.get_available_tools(
+                execution_context
+            )
+
+            if not available_tools:
+                print_info("No tools are currently available")
+                return
+
+            print_info(f"Available tools ({len(available_tools)} total):")
+            print()
+
+            # Group by category
+            by_category = {}
+            for tool in available_tools:
+                category = tool.category.value
+                if category not in by_category:
+                    by_category[category] = []
+                by_category[category].append(tool)
+
+            # Display by category
+            for category, tools_in_cat in sorted(by_category.items()):
+                print_success(f"{category.title().replace('_', ' ')}:")
+                for tool in sorted(tools_in_cat, key=lambda t: t.name):
+                    permission_indicator = ""
+                    if tool.permission_level.value == "elevated":
+                        permission_indicator = " 🔐"
+                    elif tool.permission_level.value == "system":
+                        permission_indicator = " 🚨"
+
+                    print(
+                        f"  {tool.name:<20} - {tool.description}{permission_indicator}"
+                    )
+                    if tool.tags:
+                        print(f"    Tags: {', '.join(tool.tags)}")
+                print()
+
+            print_info("Use '/tool info <name>' for detailed information about a tool")
+            print_info("Use '/tool <name> --help' to see usage examples")
+
+        except Exception as e:
+            print_error(f"Failed to list tools: {e}")
+
+    def _handle_tool_command(self, args: str, session: ChatSession) -> None:
+        """Handle /tool command for executing or getting info about tools"""
+
+        if not session.function_registry:
+            print_error("Tools system is not enabled")
+            return
+
+        if not args:
+            print_error("Please provide a tool name")
+            print_info("Usage: /tool <name> [key=value ...] or /tool info <name>")
+            print_info(
+                'Example: /tool web_search query="python programming" max_results=3'
+            )
+            return
+
+        parts = args.split()
+        if not parts:
+            print_error("Please provide a tool name")
+            return
+
+        # Handle info subcommand
+        if parts[0] == "info" and len(parts) > 1:
+            self._show_tool_info(parts[1], session)
+            return
+
+        tool_name = parts[0]
+
+        # Check if tool exists
+        tool_info = session.function_registry.get_tool_info(tool_name)
+        if not tool_info:
+            print_error(f"Tool '{tool_name}' not found")
+            print_info("Use '/tools' to see available tools")
+            return
+
+        # Handle help request
+        if len(parts) > 1 and parts[1] == "--help":
+            self._show_tool_info(tool_name, session)
+            return
+
+        # Parse arguments and execute tool
+        if len(parts) > 1:
+            try:
+                # Parse arguments from command line
+                arguments = self._parse_tool_arguments(tool_name, parts[1:], tool_info)
+                if arguments is None:
+                    return  # Error already reported
+
+                # Execute the tool
+                print_info(f"Executing tool: {tool_name}")
+                asyncio.run(self._execute_tool_direct(tool_name, arguments, session))
+
+            except Exception as e:
+                print_error(f"Failed to parse arguments: {e}")
+                self._show_tool_info(tool_name, session)
+                return
+        else:
+            # Check if tool requires arguments
+            properties = tool_info.parameters.get("properties", {})
+            required = tool_info.parameters.get("required", [])
+
+            if required or properties:
+                print_error("This tool requires arguments")
+                self._show_tool_info(tool_name, session)
+            else:
+                # Tool doesn't need arguments, execute it
+                print_info(f"Executing tool: {tool_name}")
+                asyncio.run(self._execute_tool_direct(tool_name, {}, session))
+
+    def _show_tool_info(self, tool_name: str, session: ChatSession) -> None:
+        """Show detailed information about a tool"""
+
+        tool_info = session.function_registry.get_tool_info(tool_name)
+        if not tool_info:
+            print_error(f"Tool '{tool_name}' not found")
+            return
+
+        print_info(f"Tool: {tool_info.name}")
+        print(f"  Description: {tool_info.description}")
+        print(f"  Category: {tool_info.category.value}")
+        print(f"  Source: {tool_info.source_type.value}")
+        print(f"  Permission Level: {tool_info.permission_level.value}")
+
+        if tool_info.tags:
+            print(f"  Tags: {', '.join(tool_info.tags)}")
+
+        # Show parameters
+        if tool_info.parameters.get("properties"):
+            print("  Parameters:")
+            required = tool_info.parameters.get("required", [])
+            for param_name, param_info in tool_info.parameters["properties"].items():
+                required_marker = " (required)" if param_name in required else ""
+                param_type = param_info.get("type", "unknown")
+                param_desc = param_info.get("description", "No description")
+                print(
+                    f"    - {param_name} ({param_type}){required_marker}: {param_desc}"
+                )
+
+        # Show examples
+        if tool_info.examples:
+            print("  Examples:")
+            for i, example in enumerate(
+                tool_info.examples[:2], 1
+            ):  # Show max 2 examples
+                print(f"    {i}. {example.description}")
+                if example.arguments:
+                    print(f"       Arguments: {example.arguments}")
+
+    def _parse_tool_arguments(
+        self, tool_name: str, args: list[str], tool_info
+    ) -> dict | None:
+        """Parse command line arguments for a tool"""
+        import json
+        import shlex
+
+        properties = tool_info.parameters.get("properties", {})
+        required = tool_info.parameters.get("required", [])
+
+        # Simple argument parsing: support key=value format
+        arguments = {}
+
+        try:
+            # Use a hybrid approach: handle JSON objects specially, use shlex for others
+            parsed_args = []
+
+            # First, try to identify JSON objects and preserve them
+            for arg in args:
+                if "=" in arg and "{" in arg and "}" in arg:
+                    # Likely contains JSON object, don't use shlex
+                    parsed_args.append(arg)
+                else:
+                    # Use shlex for proper quote handling of non-JSON strings
+                    try:
+                        parsed_args.extend(shlex.split(arg))
+                    except ValueError:
+                        # Fallback if shlex fails
+                        parsed_args.append(arg)
+
+            for arg in parsed_args:
+                if "=" in arg:
+                    key, value = arg.split("=", 1)
+                    key = key.strip()
+                    value = value.strip()
+
+                    # Try to convert value to appropriate type based on schema
+                    if key in properties:
+                        prop_type = properties[key].get("type", "string")
+                        try:
+                            if prop_type == "integer":
+                                arguments[key] = int(value)
+                            elif prop_type == "number":
+                                arguments[key] = float(value)
+                            elif prop_type == "boolean":
+                                arguments[key] = value.lower() in (
+                                    "true",
+                                    "1",
+                                    "yes",
+                                    "on",
+                                )
+                            elif prop_type == "array":
+                                # Simple array parsing: comma-separated values
+                                arguments[key] = [v.strip() for v in value.split(",")]
+                            elif prop_type == "object":
+                                # Try to parse as JSON
+                                arguments[key] = json.loads(value)
+                            else:
+                                arguments[key] = value
+                        except (ValueError, json.JSONDecodeError) as e:
+                            print_error(f"Invalid value for {key}: {value} ({e})")
+                            return None
+                    else:
+                        # Unknown parameter, treat as string
+                        arguments[key] = value
+                else:
+                    print_error(f"Invalid argument format: {arg}")
+                    print_info(
+                        "Use key=value format with quotes for strings containing spaces"
+                    )
+                    print_info(
+                        'Examples: query="python programming" max_results=5 enabled=true'
+                    )
+                    return None
+
+            # Check required parameters
+            for req_param in required:
+                if req_param not in arguments:
+                    print_error(f"Missing required parameter: {req_param}")
+                    return None
+
+            return arguments
+
+        except Exception as e:
+            print_error(f"Failed to parse arguments: {e}")
+            print_info("Use key=value format with quotes for strings containing spaces")
+            print_info(
+                'Examples: query="python programming" max_results=5 enabled=true'
+            )
+            return None
+
+    async def _execute_tool_direct(
+        self, tool_name: str, arguments: dict, session: ChatSession
+    ) -> None:
+        """Execute a tool directly and display results"""
+        from nova.models.tools import ExecutionContext
+
+        try:
+            context = ExecutionContext(conversation_id=session.conversation.id)
+            result = await session.function_registry.execute_tool(
+                tool_name, arguments, context
+            )
+
+            if result.success:
+                print_success(
+                    f"Tool executed successfully in {result.execution_time_ms}ms"
+                )
+
+                # Format and display the result
+                if isinstance(result.result, dict):
+                    print("Result:")
+                    for key, value in result.result.items():
+                        if isinstance(value, str) and len(value) > 200:
+                            # Truncate long strings
+                            print(f"  {key}: {value[:200]}...")
+                        elif isinstance(value, list) and len(value) > 5:
+                            # Truncate long lists
+                            print(
+                                f"  {key}: [{', '.join(map(str, value[:5]))}, ... ({len(value)} total)]"
+                            )
+                        else:
+                            print(f"  {key}: {value}")
+                elif isinstance(result.result, str):
+                    if len(result.result) > 500:
+                        print(f"Result:\n{result.result[:500]}...")
+                    else:
+                        print(f"Result:\n{result.result}")
+                else:
+                    print(f"Result: {result.result}")
+
+            else:
+                print_error(f"Tool execution failed: {result.error}")
+
+        except Exception as e:
+            print_error(f"Error executing tool: {e}")
+            logger.error(f"Tool execution error: {e}", exc_info=True)
+
+    def _handle_permissions_command(self, session: ChatSession) -> None:
+        """Handle /permissions command for managing tool permissions"""
+
+        if not session.function_registry:
+            print_error("Tools system is not enabled")
+            return
+
+        permission_manager = session.function_registry.permission_manager
+        granted_tools = permission_manager.get_granted_tools()
+
+        print_info("Tool Permission Management")
+        print(f"Current permission mode: {permission_manager.permission_mode}")
+        print()
+
+        if granted_tools:
+            print_info("Tools with granted permissions:")
+            for level, tools in granted_tools.items():
+                if tools:
+                    print(f"  {level}: {', '.join(tools)}")
+        else:
+            print_info("No permanent tool permissions granted")
+
+        print()
+        print_info("Permission levels:")
+        print("  • safe - No confirmation needed")
+        print("  • elevated - User confirmation required")
+        print("  • system - Admin approval needed")
+        print("  • dangerous - Blocked by default")
+        print()
+        print_info("Permission modes:")
+        print("  • auto - Allow elevated tools automatically")
+        print("  • prompt - Ask for permission (current)")
+        print("  • deny - Block all elevated tools")
+        print()
+        print_info("Note: Permissions are managed interactively during tool execution")

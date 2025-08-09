@@ -157,10 +157,10 @@ class MemoryManager:
 
         # Boost importance for longer messages (more detailed)
         word_count = len(message.content.split())
-        if word_count > 50:
-            importance_score += 0.2
-        elif word_count > 100:
+        if word_count > 100:
             importance_score += 0.4
+        elif word_count > 50:
+            importance_score += 0.2
 
         # Boost importance for messages with code or technical content
         if any(

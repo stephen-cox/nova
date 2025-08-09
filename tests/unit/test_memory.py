@@ -127,6 +127,26 @@ class TestMemoryManager:
         )
         assert score > 1.0  # Base score + recency boost
 
+    def test_analyze_message_importance_long_message(self):
+        """Longer messages should yield higher importance scores"""
+        medium_msg = Message(
+            role=MessageRole.USER,
+            content=" ".join(["word"] * 60),  # 60 words
+        )
+        long_msg = Message(
+            role=MessageRole.USER,
+            content=" ".join(["word"] * 120),  # 120 words
+        )
+
+        medium_score = self.memory_manager.analyze_message_importance(
+            medium_msg, self.conversation
+        )
+        long_score = self.memory_manager.analyze_message_importance(
+            long_msg, self.conversation
+        )
+
+        assert long_score > medium_score
+
     def test_optimize_conversation_context(self):
         """Test context optimization"""
         result = self.memory_manager.optimize_conversation_context(self.conversation)

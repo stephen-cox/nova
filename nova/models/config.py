@@ -136,8 +136,9 @@ class AIProfile(BaseModel):
 
 
 class SearchConfig(BaseModel):
-    """Configuration for web search functionality"""
+    """Configuration for enhanced web search functionality"""
 
+    # Basic search configuration
     enabled: bool = Field(default=True, description="Enable web search functionality")
     default_provider: str = Field(
         default="duckduckgo", description="Default search provider"
@@ -157,12 +158,106 @@ class SearchConfig(BaseModel):
         default_factory=dict, description="Bing Search API configuration (api_key)"
     )
 
+    # Enhanced search configuration
+    default_enhancement: str = Field(
+        default="fast",
+        description="Default search enhancement mode (auto, disabled, fast, semantic, hybrid)"
+    )
+    enable_conversation_context: bool = Field(
+        default=True,
+        description="Use recent conversation history to enhance search queries"
+    )
+    context_messages_count: int = Field(
+        default=5,
+        description="Number of recent messages to use for context",
+        ge=0, le=20
+    )
+    default_technical_level: str = Field(
+        default="intermediate",
+        description="Default technical level for search queries"
+    )
+    default_timeframe: str = Field(
+        default="any",
+        description="Default timeframe preference for search results"
+    )
+
+    # Performance and caching
+    enhancement_cache_enabled: bool = Field(
+        default=True,
+        description="Cache enhanced queries to improve performance"
+    )
+    enhancement_cache_duration_minutes: int = Field(
+        default=15,
+        description="How long to cache enhanced queries",
+        gt=0, le=1440  # Max 24 hours
+    )
+    performance_mode: bool = Field(
+        default=True,
+        description="Prioritize speed over semantic accuracy in enhancements"
+    )
+
+    # Keyword extraction configuration
+    extraction_backend: str = Field(
+        default="yake_only",
+        description="Keyword extraction backend"
+    )
+    enable_keybert: bool = Field(
+        default=False,
+        description="Enable KeyBERT semantic extraction (requires additional dependencies)"
+    )
+    yake_max_keywords: int = Field(
+        default=10,
+        description="Maximum keywords to extract using YAKE",
+        gt=0, le=50
+    )
+    keybert_max_keywords: int = Field(
+        default=6,
+        description="Maximum keywords to extract using KeyBERT",
+        gt=0, le=20
+    )
+    keybert_model: str = Field(
+        default="all-MiniLM-L6-v2",
+        description="KeyBERT model name for semantic extraction"
+    )
+
     @field_validator("default_provider")
     @classmethod
     def validate_provider(cls, v: str) -> str:
         allowed_providers = {"duckduckgo", "google", "bing"}
         if v not in allowed_providers:
             raise ValueError(f"Provider must be one of: {', '.join(allowed_providers)}")
+        return v
+
+    @field_validator("default_enhancement")
+    @classmethod
+    def validate_enhancement(cls, v: str) -> str:
+        allowed_modes = {"auto", "disabled", "fast", "semantic", "hybrid", "adaptive"}
+        if v not in allowed_modes:
+            raise ValueError(f"Enhancement mode must be one of: {', '.join(allowed_modes)}")
+        return v
+
+    @field_validator("default_technical_level")
+    @classmethod
+    def validate_technical_level(cls, v: str) -> str:
+        allowed_levels = {"beginner", "intermediate", "expert"}
+        if v not in allowed_levels:
+            raise ValueError(f"Technical level must be one of: {', '.join(allowed_levels)}")
+        return v
+
+    @field_validator("default_timeframe")
+    @classmethod
+    def validate_timeframe(cls, v: str) -> str:
+        allowed_timeframes = {"recent", "past_year", "any"}
+        if v not in allowed_timeframes:
+            raise ValueError(f"Timeframe must be one of: {', '.join(allowed_timeframes)}")
+        return v
+
+    @field_validator("extraction_backend")
+    @classmethod
+    def validate_extraction_backend(cls, v: str) -> str:
+        allowed_backends = {"yake_only", "keybert_only", "hybrid", "adaptive"}
+        if v not in allowed_backends:
+            raise ValueError(f"Extraction backend must be one of: {', '.join(allowed_backends)}")
         return v
 
 

@@ -11,9 +11,10 @@ Nova is an AI research and personal assistant written in Python that provides:
 - Chat history saved to markdown files
 - **Multi-provider AI integration** (OpenAI, Anthropic, Ollama)
 - **Custom prompt templating system** with built-in templates and user-defined prompts
+- **Enhanced web search with intelligent query optimization** using YAKE keyword extraction and semantic analysis
 - Modular architecture for extensibility
 
-**Current Status:** Phase 4 complete (Tools Integration), supports OpenAI, Anthropic, and Ollama with custom prompt templates and comprehensive tools system with profile-based configuration.
+**Current Status:** Enhanced Search implemented with intelligent query optimization, supports OpenAI, Anthropic, and Ollama with custom prompt templates and comprehensive tools system with profile-based configuration.
 
 ## Package Management Commands
 
@@ -58,6 +59,79 @@ Use these commands:
 - Profiles inherit global tools settings by default
 - Override specific settings per profile (permission mode, enabled modules, etc.)
 - Use "Global" or "Custom" tools configuration per profile
+
+## Enhanced Web Search Commands
+
+Nova includes intelligent search with context-aware query enhancement through both tools and chat commands.
+
+### /search Command (Enhanced)
+
+**Basic Usage:**
+```bash
+/search <query>                    # Uses your configured default enhancement
+/s <query>                        # Short form
+```
+
+**Advanced Usage:**
+```bash
+/search <query> --enhancement fast              # YAKE keyword extraction (~50ms)
+/search <query> --enhancement semantic          # KeyBERT semantic analysis (~200-500ms)
+/search <query> --enhancement hybrid            # Combined YAKE + KeyBERT (~300-600ms)
+/search <query> --enhancement disabled          # Direct search without enhancement
+
+/search <query> --provider google --max 3       # Existing options still work
+/search <query> --technical-level expert        # Adjust query complexity
+/search <query> --timeframe recent              # Prefer recent results
+```
+
+### Tool Usage (Alternative)
+
+```bash
+/tool web_search query="Python async programming" enhancement="fast"
+/tool web_search query="machine learning deployment" enhancement="semantic"
+```
+
+### Search Enhancement Modes
+
+- **auto**: Automatically choose best enhancement (YAKE + context)
+- **disabled**: No enhancement, direct search
+- **fast**: YAKE-only enhancement (~50ms) - **Default**
+- **semantic**: KeyBERT semantic analysis (~200-500ms, requires additional dependencies)
+- **hybrid**: Combined YAKE + KeyBERT (~300-600ms)
+
+### Search Enhancement Configuration
+
+Configure default search behavior in your configuration file:
+
+```yaml
+search:
+  # Basic search settings
+  enabled: true
+  default_provider: "duckduckgo"
+  max_results: 5
+  use_ai_answers: true
+
+  # Enhancement defaults (users can override per search)
+  default_enhancement: "fast"           # auto, disabled, fast, semantic, hybrid
+  enable_conversation_context: true     # Use chat history for context
+  default_technical_level: "intermediate"  # beginner, intermediate, expert
+  default_timeframe: "any"             # recent, past_year, any
+
+  # Performance settings
+  performance_mode: true               # Prioritize speed over accuracy
+  enhancement_cache_enabled: true     # Cache enhanced queries
+
+  # Advanced: Enable semantic analysis (optional)
+  enable_keybert: false               # Set to true for KeyBERT
+  extraction_backend: "yake_only"      # yake_only, keybert_only, hybrid
+```
+
+### Performance Guidance
+
+- Use **fast** or default for most queries (optimal speed/accuracy balance)
+- Use **semantic** for complex technical topics or research (requires: `uv add keybert sentence-transformers`)
+- Use **disabled** for exact phrase searches or when speed is critical
+- The system automatically uses conversation context to improve search relevance
 
 ## Testing Commands
 

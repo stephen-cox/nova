@@ -9,5 +9,5 @@ __all__ = [
     "BaseSearchClient",
     "DuckDuckGoSearchClient",
     "GoogleSearchClient",
-    "BingSearchClient"
+    "BingSearchClient",
 ]

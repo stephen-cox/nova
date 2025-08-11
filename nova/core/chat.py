@@ -13,18 +13,16 @@ from nova.core.history import HistoryManager
 from nova.core.input_handler import ChatInputHandler
 from nova.core.memory import MemoryManager
 from nova.core.prompts import PromptManager
-from nova.core.search import SearchError, search_web
-from nova.search.manager import EnhancedSearchManager
-from nova.search.models import SearchEnhancementMode, SearchMemoryConstraints
 from nova.core.tools import FunctionRegistry
 from nova.models.config import NovaConfig
 from nova.models.message import Conversation, MessageRole
 from nova.models.tools import ExecutionContext
+from nova.search.manager import EnhancedSearchManager
+from nova.search.models import SearchEnhancementMode, SearchMemoryConstraints
 from nova.utils.formatting import (
     print_error,
     print_info,
     print_message,
-    print_search_results,
     print_success,
     print_warning,
 )
@@ -427,7 +425,9 @@ class ChatManager:
         """Handle enhanced web search command with intelligent query optimization"""
         if not search_args:
             print_error("Please provide a search query")
-            print_info("Usage: /search <query> [--provider <provider>] [--max <number>] [--enhancement <mode>] [--technical-level <level>] [--timeframe <time>]")
+            print_info(
+                "Usage: /search <query> [--provider <provider>] [--max <number>] [--enhancement <mode>] [--technical-level <level>] [--timeframe <time>]"
+            )
             print_info("Enhancement modes: auto, disabled, fast, semantic, hybrid")
             return
 
@@ -445,7 +445,9 @@ class ChatManager:
         provider = args.get("provider") or self.config.search.default_provider
         max_results = args.get("max_results") or self.config.search.max_results
         enhancement = args.get("enhancement") or self.config.search.default_enhancement
-        technical_level = args.get("technical_level") or self.config.search.default_technical_level
+        technical_level = (
+            args.get("technical_level") or self.config.search.default_technical_level
+        )
         timeframe = args.get("timeframe") or self.config.search.default_timeframe
 
         try:
@@ -457,16 +459,18 @@ class ChatManager:
             conversation_context = self._get_search_context(session)
 
             # Execute enhanced search
-            search_response = asyncio.run(self._execute_enhanced_search(
-                query=query,
-                provider=provider,
-                max_results=max_results,
-                enhancement=enhancement,
-                technical_level=technical_level,
-                timeframe=timeframe,
-                conversation_context=conversation_context,
-                session=session
-            ))
+            search_response = asyncio.run(
+                self._execute_enhanced_search(
+                    query=query,
+                    provider=provider,
+                    max_results=max_results,
+                    enhancement=enhancement,
+                    technical_level=technical_level,
+                    timeframe=timeframe,
+                    conversation_context=conversation_context,
+                    session=session,
+                )
+            )
 
             # Display enhancement details if used
             if enhancement != "disabled" and "enhancement_details" in search_response:
@@ -517,11 +521,20 @@ class ChatManager:
                 i += 2
             elif parts[i] == "--enhancement" and i + 1 < len(parts):
                 enhancement_value = parts[i + 1]
-                if enhancement_value in ["auto", "disabled", "fast", "semantic", "hybrid", "adaptive"]:
+                if enhancement_value in [
+                    "auto",
+                    "disabled",
+                    "fast",
+                    "semantic",
+                    "hybrid",
+                    "adaptive",
+                ]:
                     enhancement = enhancement_value
                 else:
                     print_error(f"Invalid enhancement mode: {enhancement_value}")
-                    print_info("Valid modes: auto, disabled, fast, semantic, hybrid, adaptive")
+                    print_info(
+                        "Valid modes: auto, disabled, fast, semantic, hybrid, adaptive"
+                    )
                     return None
                 i += 2
             elif parts[i] == "--technical-level" and i + 1 < len(parts):
@@ -558,7 +571,7 @@ class ChatManager:
             "max_results": max_results,
             "enhancement": enhancement,
             "technical_level": technical_level,
-            "timeframe": timeframe
+            "timeframe": timeframe,
         }
 
     def _get_search_context(self, session: ChatSession) -> str:
@@ -568,44 +581,50 @@ class ChatManager:
 
         # Get recent messages for context
         context_count = self.config.search.context_messages_count
-        context_messages = session.conversation.messages[-context_count:] if session.conversation.messages else []
-        
+        context_messages = (
+            session.conversation.messages[-context_count:]
+            if session.conversation.messages
+            else []
+        )
+
         if not context_messages:
             return ""
-        
+
         context_parts = []
         for message in context_messages:
             if message.role in [MessageRole.USER, MessageRole.ASSISTANT]:
                 # Clean up message content and add to context
                 content = message.content.strip()
-                
+
                 # Skip very short messages or commands
-                if len(content) < 10 or content.startswith('/'):
+                if len(content) < 10 or content.startswith("/"):
                     continue
-                    
+
                 # Limit length but try to keep complete sentences
                 if len(content) > 150:
                     # Find the last sentence boundary within limit
                     limited_content = content[:150]
-                    last_period = limited_content.rfind('.')
-                    last_question = limited_content.rfind('?')
-                    last_exclamation = limited_content.rfind('!')
-                    
+                    last_period = limited_content.rfind(".")
+                    last_question = limited_content.rfind("?")
+                    last_exclamation = limited_content.rfind("!")
+
                     sentence_end = max(last_period, last_question, last_exclamation)
-                    if sentence_end > 50:  # Only truncate at sentence boundary if it's not too short
-                        content = limited_content[:sentence_end + 1]
+                    if (
+                        sentence_end > 50
+                    ):  # Only truncate at sentence boundary if it's not too short
+                        content = limited_content[: sentence_end + 1]
                     else:
                         content = limited_content + "..."
-                
+
                 role_name = "User" if message.role == MessageRole.USER else "Assistant"
                 context_parts.append(f"{role_name}: {content}")
-        
+
         context_text = "\n".join(context_parts)
-        
+
         # Add some metadata about the context
         if context_text:
             context_text = f"Recent conversation context ({len(context_parts)} messages):\n{context_text}"
-        
+
         return context_text
 
     async def _execute_enhanced_search(
@@ -617,10 +636,10 @@ class ChatManager:
         technical_level: str,
         timeframe: str,
         conversation_context: str,
-        session: ChatSession
+        session: ChatSession,
     ) -> dict:
         """Execute enhanced search using the new search manager"""
-        
+
         # Convert config to the format expected by EnhancedSearchManager
         search_config = {
             "search": {
@@ -636,6 +655,7 @@ class ChatManager:
         ai_client = None
         try:
             from nova.core.ai_client import create_ai_client
+
             active_config = self.config.get_active_ai_config()
             ai_client = create_ai_client(active_config)
         except Exception as e:
@@ -664,7 +684,7 @@ class ChatManager:
             constraints = SearchMemoryConstraints(
                 technical_level=technical_level,
                 timeframe=timeframe,
-                locale="en-US"  # TODO: Make this configurable
+                locale="en-US",  # TODO: Make this configurable
             )
 
             # Execute enhanced search
@@ -675,7 +695,7 @@ class ChatManager:
                 extract_content=True,
                 enhancement_mode=enhancement_mode,
                 conversation_context=conversation_context,
-                memory_constraints=constraints
+                memory_constraints=constraints,
             )
 
             return result
@@ -688,41 +708,43 @@ class ChatManager:
         """Display enhancement information to the user"""
         if not enhancement_details:
             return
-            
+
         mode = enhancement_details.get("mode", "unknown")
         processing_time = enhancement_details.get("processing_time_ms", 0)
         context_used = enhancement_details.get("context_used", False)
-        
+
         print_info(f"📊 Enhancement: {mode} mode ({processing_time}ms)")
-        
+
         if context_used:
             print_info("💭 Used conversation context for query optimization")
-            
+
         enhanced_queries = enhancement_details.get("enhanced_queries", [])
         if enhanced_queries and len(enhanced_queries) > 1:
             print_info(f"🔍 Generated {len(enhanced_queries)} optimized search queries")
 
-    def _generate_search_ai_response(self, query: str, search_response: dict, session: ChatSession) -> str:
+    def _generate_search_ai_response(
+        self, query: str, search_response: dict, session: ChatSession
+    ) -> str:
         """Generate AI response from enhanced search results"""
         # Convert search response to a format suitable for AI synthesis
         results = search_response.get("results", [])
-        
+
         if not results:
             return f"I couldn't find any relevant results for your search query: '{query}'. You might want to try different search terms or check your internet connection."
 
         # Prepare context for AI response
         search_context = f"Search query: {query}\n\n"
         search_context += "Search results:\n"
-        
+
         for i, result in enumerate(results[:5], 1):  # Limit to top 5 results
-            title = getattr(result, 'title', 'No title')
-            snippet = getattr(result, 'snippet', 'No description')
-            url = getattr(result, 'url', 'No URL')
-            content_summary = getattr(result, 'content_summary', None)
-            
+            title = getattr(result, "title", "No title")
+            snippet = getattr(result, "snippet", "No description")
+            url = getattr(result, "url", "No URL")
+            content_summary = getattr(result, "content_summary", None)
+
             search_context += f"{i}. {title}\n"
             search_context += f"   URL: {url}\n"
-            
+
             # Use content summary if available, otherwise use snippet
             if content_summary:
                 search_context += f"   Content: {content_summary}\n"
@@ -733,23 +755,24 @@ class ChatManager:
         # Generate AI response using the search context
         try:
             from nova.core.ai_client import create_ai_client
+
             active_config = self.config.get_active_ai_config()
             ai_client = create_ai_client(active_config)
-            
+
             messages = [
                 {
                     "role": "system",
-                    "content": "You are Nova, an AI assistant. Use the provided search results to give a comprehensive and helpful answer to the user's query. Cite sources when appropriate and provide additional insights based on the information found."
+                    "content": "You are Nova, an AI assistant. Use the provided search results to give a comprehensive and helpful answer to the user's query. Cite sources when appropriate and provide additional insights based on the information found.",
                 },
                 {
                     "role": "user",
-                    "content": f"Based on these search results, please answer the query: '{query}'\n\n{search_context}"
-                }
+                    "content": f"Based on these search results, please answer the query: '{query}'\n\n{search_context}",
+                },
             ]
-            
+
             response = asyncio.run(ai_client.generate_response(messages))
             return response.strip()
-            
+
         except Exception as e:
             print_warning(f"AI response generation failed: {e}")
             # Fallback to simple result formatting
@@ -758,26 +781,26 @@ class ChatManager:
     def _display_enhanced_search_results(self, search_response: dict) -> None:
         """Display enhanced search results"""
         results = search_response.get("results", [])
-        
+
         if not results:
             print_info("No results found.")
             return
-            
+
         provider = search_response.get("provider", "Unknown")
         total_results = search_response.get("total_results", len(results))
-        
+
         print_info(f"Found {total_results} results using {provider}:")
         print()
-        
+
         for i, result in enumerate(results, 1):
-            title = getattr(result, 'title', 'No title')
-            url = getattr(result, 'url', 'No URL')
-            snippet = getattr(result, 'snippet', 'No description')
-            content_summary = getattr(result, 'content_summary', None)
-            
+            title = getattr(result, "title", "No title")
+            url = getattr(result, "url", "No URL")
+            snippet = getattr(result, "snippet", "No description")
+            content_summary = getattr(result, "content_summary", None)
+
             print(f"{i}. {title}")
             print(f"   {url}")
-            
+
             # Show enhanced summary if available
             if content_summary:
                 print(f"   Summary: {content_summary}")
@@ -789,18 +812,18 @@ class ChatManager:
         """Simple fallback formatting for search results"""
         if not results:
             return f"No results found for: {query}"
-            
+
         response = f"Here are the search results for '{query}':\n\n"
-        
+
         for i, result in enumerate(results[:3], 1):  # Show top 3 results
-            title = getattr(result, 'title', 'No title')
-            snippet = getattr(result, 'snippet', 'No description')
-            url = getattr(result, 'url', 'No URL')
-            
+            title = getattr(result, "title", "No title")
+            snippet = getattr(result, "snippet", "No description")
+            url = getattr(result, "url", "No URL")
+
             response += f"{i}. **{title}**\n"
             response += f"   {snippet}\n"
             response += f"   Source: {url}\n\n"
-            
+
         return response
 
     def _generate_ai_response(self, session: ChatSession) -> str:
@@ -1050,7 +1073,7 @@ Content: {content}
         # Try to use advanced synthesis if we have an AI client
         if ai_client:
             try:
-                from nova.core.search import ContentSummarizer
+                from nova.search.manager import ContentSummarizer
 
                 summarizer = ContentSummarizer(ai_client)
 

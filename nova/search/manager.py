@@ -148,16 +148,19 @@ class EnhancedSearchManager:
         search_config = self.config.get("search", {})
 
         # Always add DuckDuckGo as it doesn't require API keys
-        self.providers["duckduckgo"] = DuckDuckGoSearchClient({})
+        ddg_config = {"timeout": search_config.get("request_timeout", 10.0)}
+        self.providers["duckduckgo"] = DuckDuckGoSearchClient(ddg_config)
 
         # Add Google if configured
         google_config = search_config.get("google", {})
         if google_config.get("api_key") and google_config.get("search_engine_id"):
+            google_config["timeout"] = search_config.get("request_timeout", 10.0)
             self.providers["google"] = GoogleSearchClient(google_config)
 
         # Add Bing if configured
         bing_config = search_config.get("bing", {})
         if bing_config.get("api_key"):
+            bing_config["timeout"] = search_config.get("request_timeout", 10.0)
             self.providers["bing"] = BingSearchClient(bing_config)
 
         logger.info(f"Initialized search providers: {list(self.providers.keys())}")
@@ -171,7 +174,7 @@ class EnhancedSearchManager:
             yake_max_keywords=search_config.get("yake_max_keywords", 10),
             keybert_max_keywords=search_config.get("keybert_max_keywords", 6),
             keybert_model=search_config.get("keybert_model", "all-MiniLM-L6-v2"),
-            performance_mode=search_config.get("performance_mode", True)
+            performance_mode=search_config.get("performance_mode", True),
         )
 
     async def enhanced_search(
@@ -183,7 +186,7 @@ class EnhancedSearchManager:
         enhancement_mode: SearchEnhancementMode = SearchEnhancementMode.FAST,
         conversation_context: str = "",
         memory_constraints: SearchMemoryConstraints | None = None,
-        **kwargs
+        **kwargs,
     ) -> dict[str, Any]:
         """
         Perform enhanced web search with intelligent query optimization
@@ -204,9 +207,11 @@ class EnhancedSearchManager:
                     conversation_context=conversation_context,
                     memory_constraints=memory_constraints,
                     enhancement_mode=enhancement_mode,
-                    max_queries=3
+                    max_queries=3,
                 )
-                logger.info(f"Enhanced query in {enhancement_plan.processing_time_ms}ms")
+                logger.info(
+                    f"Enhanced query in {enhancement_plan.processing_time_ms}ms"
+                )
             except Exception as e:
                 logger.warning(f"Query enhancement failed: {e}")
 
@@ -224,10 +229,26 @@ class EnhancedSearchManager:
         # Stage 3: Prepare response with enhancement details
         response = {
             "query": query,
-            "results": search_results.results if hasattr(search_results, 'results') else search_results,
-            "total_results": search_results.total_results if hasattr(search_results, 'total_results') else len(search_results),
-            "search_time_ms": search_results.search_time_ms if hasattr(search_results, 'search_time_ms') else 0,
-            "provider": search_results.provider if hasattr(search_results, 'provider') else (provider or "duckduckgo")
+            "results": (
+                search_results.results
+                if hasattr(search_results, "results")
+                else search_results
+            ),
+            "total_results": (
+                search_results.total_results
+                if hasattr(search_results, "total_results")
+                else len(search_results)
+            ),
+            "search_time_ms": (
+                search_results.search_time_ms
+                if hasattr(search_results, "search_time_ms")
+                else 0
+            ),
+            "provider": (
+                search_results.provider
+                if hasattr(search_results, "provider")
+                else (provider or "duckduckgo")
+            ),
         }
 
         # Add enhancement details if available
@@ -236,8 +257,10 @@ class EnhancedSearchManager:
                 "mode": enhancement_plan.enhancement_mode,
                 "processing_time_ms": enhancement_plan.processing_time_ms,
                 "context_used": enhancement_plan.context_used,
-                "enhanced_queries": [eq.model_dump() for eq in enhancement_plan.enhanced_queries],
-                "extraction_summary": enhancement_plan.extraction_details
+                "enhanced_queries": [
+                    eq.model_dump() for eq in enhancement_plan.enhanced_queries
+                ],
+                "extraction_summary": enhancement_plan.extraction_details,
             }
 
         return response
@@ -248,7 +271,7 @@ class EnhancedSearchManager:
         provider: str | None,
         max_results: int,
         extract_content: bool,
-        **kwargs
+        **kwargs,
     ) -> SearchResponse:
         """Execute multiple enhanced queries and merge results"""
 
@@ -263,7 +286,9 @@ class EnhancedSearchManager:
             async with semaphore:
                 try:
                     # Distribute max_results across queries
-                    query_max_results = max_results // len(enhancement_plan.enhanced_queries)
+                    query_max_results = max_results // len(
+                        enhancement_plan.enhanced_queries
+                    )
                     if query_max_results < 3:
                         query_max_results = 3
 
@@ -278,20 +303,20 @@ class EnhancedSearchManager:
 
                     return response
                 except Exception as e:
-                    logger.warning(f"Enhanced query failed: {enhanced_query.query} - {e}")
+                    logger.warning(
+                        f"Enhanced query failed: {enhanced_query.query} - {e}"
+                    )
                     return None
 
         # Execute all enhanced queries
-        search_tasks = [
-            execute_query(eq) for eq in enhancement_plan.enhanced_queries
-        ]
+        search_tasks = [execute_query(eq) for eq in enhancement_plan.enhanced_queries]
 
         search_responses = await asyncio.gather(*search_tasks, return_exceptions=True)
 
         # Merge and deduplicate results
         seen_urls = set()
         for response in search_responses:
-            if response and hasattr(response, 'results'):
+            if response and hasattr(response, "results"):
                 total_search_time += response.search_time_ms
                 for result in response.results:
                     if result.url not in seen_urls:
@@ -299,15 +324,19 @@ class EnhancedSearchManager:
                         seen_urls.add(result.url)
 
         # Sort by enhancement priority and relevance
-        all_results.sort(key=lambda r: (
-            getattr(r, 'enhancement_priority', 999),
-            -len(r.snippet)  # Prefer results with more detailed snippets
-        ))
+        all_results.sort(
+            key=lambda r: (
+                getattr(r, "enhancement_priority", 999),
+                -len(r.snippet),  # Prefer results with more detailed snippets
+            )
+        )
 
         # Extract content if requested
         if extract_content and all_results:
             all_results = await self._enhance_results_with_content(
-                all_results[:max_results], search_client, enhancement_plan.original_query
+                all_results[:max_results],
+                search_client,
+                enhancement_plan.original_query,
             )
 
         return SearchResponse(
@@ -315,7 +344,7 @@ class EnhancedSearchManager:
             results=all_results[:max_results],
             total_results=len(all_results),
             search_time_ms=total_search_time,
-            provider=search_client.__class__.__name__.replace("SearchClient", "")
+            provider=search_client.__class__.__name__.replace("SearchClient", ""),
         )
 
     async def _execute_single_search(
@@ -324,7 +353,7 @@ class EnhancedSearchManager:
         provider: str | None,
         max_results: int,
         extract_content: bool,
-        **kwargs
+        **kwargs,
     ) -> SearchResponse:
         """Execute a single search query (fallback)"""
 
@@ -364,10 +393,7 @@ class EnhancedSearchManager:
             return next(iter(self.providers.values()))
 
     async def _enhance_results_with_content(
-        self,
-        results: list[SearchResult],
-        search_client: BaseSearchClient,
-        query: str
+        self, results: list[SearchResult], search_client: BaseSearchClient, query: str
     ) -> list[SearchResult]:
         """Enhance search results with extracted content and summaries"""
 
@@ -389,7 +415,9 @@ class EnhancedSearchManager:
                         try:
                             summary = await summarizer.summarize_content(content, query)
                         except Exception as e:
-                            logger.debug(f"Summary generation failed for {result.url}: {e}")
+                            logger.debug(
+                                f"Summary generation failed for {result.url}: {e}"
+                            )
 
                     # Return enhanced result
                     return SearchResult(
@@ -410,7 +438,9 @@ class EnhancedSearchManager:
                     return result
 
         enhancement_tasks = [enhance_result(result) for result in results]
-        enhanced_results = await asyncio.gather(*enhancement_tasks, return_exceptions=True)
+        enhanced_results = await asyncio.gather(
+            *enhancement_tasks, return_exceptions=True
+        )
 
         # Filter out failed enhancements
         valid_results = []
@@ -442,5 +472,5 @@ class EnhancedSearchManager:
             results=result["results"],
             total_results=result["total_results"],
             search_time_ms=result["search_time_ms"],
-            provider=result["provider"]
+            provider=result["provider"],
         )

@@ -40,11 +40,12 @@ class SearchResponse(BaseModel):
 
 class SearchEnhancementMode(str, Enum):
     """Available search enhancement modes"""
-    AUTO = "auto"           # Automatically choose best enhancement
-    DISABLED = "disabled"   # No enhancement, direct search
-    FAST = "fast"          # YAKE-only enhancement (~50ms)
-    SEMANTIC = "semantic"   # KeyBERT semantic analysis (~200-500ms)
-    HYBRID = "hybrid"      # Combined YAKE + KeyBERT (~300-600ms)
+
+    AUTO = "auto"  # Automatically choose best enhancement
+    DISABLED = "disabled"  # No enhancement, direct search
+    FAST = "fast"  # YAKE-only enhancement (~50ms)
+    SEMANTIC = "semantic"  # KeyBERT semantic analysis (~200-500ms)
+    HYBRID = "hybrid"  # Combined YAKE + KeyBERT (~300-600ms)
     ADAPTIVE = "adaptive"  # Choose based on query complexity
 
 
@@ -60,8 +61,12 @@ class KeywordResult(BaseModel):
 class TermClassification(BaseModel):
     """Classification of extracted terms"""
 
-    must_have_terms: list[str] = Field(description="Critical terms that must appear in search")
-    nice_to_have_terms: list[str] = Field(description="Optional terms that improve relevance")
+    must_have_terms: list[str] = Field(
+        description="Critical terms that must appear in search"
+    )
+    nice_to_have_terms: list[str] = Field(
+        description="Optional terms that improve relevance"
+    )
     entities: list[str] = Field(description="Named entities found")
     technical_terms: list[str] = Field(description="Technical terms or jargon")
 
@@ -69,10 +74,16 @@ class TermClassification(BaseModel):
 class SearchMemoryConstraints(BaseModel):
     """User preferences and memory constraints for search"""
 
-    preferred_sites: list[str] = Field(default_factory=list, description="Preferred websites")
-    blocked_sites: list[str] = Field(default_factory=list, description="Blocked websites")
+    preferred_sites: list[str] = Field(
+        default_factory=list, description="Preferred websites"
+    )
+    blocked_sites: list[str] = Field(
+        default_factory=list, description="Blocked websites"
+    )
     locale: str = Field(default="en-US", description="Search locale preference")
-    technical_level: str = Field(default="intermediate", description="Technical complexity level")
+    technical_level: str = Field(
+        default="intermediate", description="Technical complexity level"
+    )
     timeframe: str = Field(default="any", description="Time preference for results")
 
 
@@ -89,7 +100,9 @@ class EnhancedSearchPlan(BaseModel):
     """Complete search plan with multiple optimized queries"""
 
     original_query: str = Field(description="Original user query")
-    enhanced_queries: list[EnhancedSearchQuery] = Field(description="Generated search queries")
+    enhanced_queries: list[EnhancedSearchQuery] = Field(
+        description="Generated search queries"
+    )
     extraction_details: dict[str, Any] = Field(description="Keyword extraction details")
     enhancement_mode: SearchEnhancementMode = Field(description="Enhancement mode used")
     processing_time_ms: int = Field(description="Time taken for enhancement")
@@ -98,4 +111,5 @@ class EnhancedSearchPlan(BaseModel):
 
 class SearchError(Exception):
     """Search-related errors"""
+
     pass

@@ -5,7 +5,6 @@ and current time information.
 """
 
 from datetime import UTC, datetime
-from typing import Optional
 
 from nova.models.tools import PermissionLevel, ToolCategory, ToolExample
 from nova.tools import tool
@@ -29,7 +28,10 @@ from nova.tools import tool
         ),
         ToolExample(
             description="Semantic search for complex topics",
-            arguments={"query": "machine learning deployment", "enhancement": "semantic"},
+            arguments={
+                "query": "machine learning deployment",
+                "enhancement": "semantic",
+            },
             expected_result="Semantically enhanced search with KeyBERT extraction",
         ),
         ToolExample(
@@ -38,7 +40,7 @@ from nova.tools import tool
                 "query": "Rust memory safety",
                 "provider": "google",
                 "max_results": 3,
-                "technical_level": "expert"
+                "technical_level": "expert",
             },
             expected_result="Expert-level search results about Rust memory safety",
         ),
@@ -46,12 +48,13 @@ from nova.tools import tool
 )
 async def web_search(
     query: str,
-    enhancement: Optional[str] = None,
-    provider: Optional[str] = None,
-    max_results: Optional[int] = None,
+    enhancement: str | None = None,
+    provider: str | None = None,
+    max_results: int | None = None,
     include_content: bool = True,
-    timeframe: Optional[str] = None,
-    technical_level: Optional[str] = None,
+    timeframe: str | None = None,
+    technical_level: str | None = None,
+    conversation_context: str | None = None,
 ) -> dict:
     """
     Enhanced web search with intelligent query optimization.
@@ -71,15 +74,16 @@ async def web_search(
         include_content: Extract detailed content from pages
         timeframe: Preferred time range (recent, past_year, any)
         technical_level: Adjust query complexity (beginner, intermediate, expert)
+        conversation_context: Recent conversation context for enhancement (optional)
 
     Returns:
         Enhanced search results with optimization details
     """
     # Import here to avoid circular dependencies
     try:
+        from nova.core.config import config_manager
         from nova.search.manager import EnhancedSearchManager
         from nova.search.models import SearchEnhancementMode, SearchMemoryConstraints
-        from nova.core.config import config_manager
     except ImportError:
         # Fallback to legacy search
         return await _fallback_search(query, max_results or 5)
@@ -87,7 +91,7 @@ async def web_search(
     try:
         # Get configuration
         config = config_manager.load_config()
-        
+
         # Apply configuration defaults for None values
         enhancement = enhancement or config.search.default_enhancement
         provider = provider or config.search.default_provider
@@ -99,7 +103,7 @@ async def web_search(
         if provider not in ["duckduckgo", "google", "bing"]:
             provider = "duckduckgo"
         max_results = max(1, min(20, max_results))
-        
+
         # Convert enhancement string to enum
         try:
             enhancement_mode = SearchEnhancementMode(enhancement)
@@ -108,39 +112,34 @@ async def web_search(
 
         # Create memory constraints
         memory_constraints = SearchMemoryConstraints(
-            technical_level=technical_level,
-            timeframe=timeframe,
-            locale="en-US"
+            technical_level=technical_level, timeframe=timeframe, locale="en-US"
         )
 
-        # Get AI client for query enhancement (from tool context)
+        # Get AI client for query enhancement
         ai_client = None
-        conversation_context = ""
         try:
             from nova.core.ai_client import create_ai_client
+
             active_config = config.get_active_ai_config()
             ai_client = create_ai_client(active_config)
-            
-            # TODO: Extract conversation context from tool execution context
-            # This would be populated by the chat manager when tools are called
-            # For now, we'll let the search manager handle enhancement without context
         except Exception:
             pass
 
+        # Use provided conversation context or empty string
+        context = conversation_context or ""
+
         # Use EnhancedSearchManager for search
-        search_config = {
-            "search": config.search.model_dump()
-        }
+        search_config = {"search": config.search.model_dump()}
         search_manager = EnhancedSearchManager(search_config, ai_client)
-        
+
         search_response = await search_manager.enhanced_search(
             query=query,
             provider=provider,
             max_results=max_results,
             extract_content=include_content,
             enhancement_mode=enhancement_mode,
-            conversation_context=conversation_context,
-            memory_constraints=memory_constraints
+            conversation_context=context,
+            memory_constraints=memory_constraints,
         )
 
         # Close the search manager after use
@@ -150,10 +149,22 @@ async def web_search(
         results = []
         for result in search_response["results"]:
             result_dict = {
-                "title": result.title if hasattr(result, 'title') else result.get('title', ''),
-                "url": result.url if hasattr(result, 'url') else result.get('url', ''),
-                "snippet": result.snippet if hasattr(result, 'snippet') else result.get('snippet', ''),
-                "source": result.source if hasattr(result, 'source') else result.get('source', ''),
+                "title": (
+                    result.title
+                    if hasattr(result, "title")
+                    else result.get("title", "")
+                ),
+                "url": result.url if hasattr(result, "url") else result.get("url", ""),
+                "snippet": (
+                    result.snippet
+                    if hasattr(result, "snippet")
+                    else result.get("snippet", "")
+                ),
+                "source": (
+                    result.source
+                    if hasattr(result, "source")
+                    else result.get("source", "")
+                ),
             }
 
             # Add enhanced content if available
@@ -175,7 +186,7 @@ async def web_search(
             "provider": search_response["provider"],
             "results": results,
             "total_results": search_response["total_results"],
-            "search_time_ms": search_response.get("search_time_ms", 0)
+            "search_time_ms": search_response.get("search_time_ms", 0),
         }
 
         # Add enhancement details if available
@@ -185,17 +196,20 @@ async def web_search(
                 "mode": enhancement_details["mode"],
                 "processing_time_ms": enhancement_details["processing_time_ms"],
                 "context_used": enhancement_details["context_used"],
-                "enhanced_queries_count": len(enhancement_details.get("enhanced_queries", []))
+                "enhanced_queries_count": len(
+                    enhancement_details.get("enhanced_queries", [])
+                ),
             }
-            
+
             # Include enhanced queries for debugging/transparency
             if enhancement_details.get("enhanced_queries"):
                 response["enhancement"]["enhanced_queries"] = [
                     {
                         "query": eq["query"],
                         "priority": eq["priority"],
-                        "rationale": eq["rationale"]
-                    } for eq in enhancement_details["enhanced_queries"]
+                        "rationale": eq["rationale"],
+                    }
+                    for eq in enhancement_details["enhanced_queries"]
                 ]
 
         return response

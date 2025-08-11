@@ -21,7 +21,7 @@ class BaseSearchClient(ABC):
     def __init__(self, config: dict[str, Any]):
         self.config = config
         self.client = httpx.AsyncClient(
-            timeout=30.0, headers={"User-Agent": "Nova AI Assistant/1.0"}
+            timeout=config.get("timeout", 10.0), headers={"User-Agent": "Nova AI Assistant/1.0"}
         )
 
     @abstractmethod

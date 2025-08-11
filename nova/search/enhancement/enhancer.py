@@ -33,7 +33,7 @@ class QueryEnhancer:
         conversation_context: str = "",
         memory_constraints: SearchMemoryConstraints | None = None,
         enhancement_mode: SearchEnhancementMode = SearchEnhancementMode.FAST,
-        max_queries: int = 3
+        max_queries: int = 3,
     ) -> EnhancedSearchPlan:
         """
         Three-stage enhancement pipeline:
@@ -63,7 +63,7 @@ class QueryEnhancer:
                     extraction_details=extraction_details,
                     conversation_context=conversation_context,
                     memory_constraints=memory_constraints or SearchMemoryConstraints(),
-                    max_queries=max_queries
+                    max_queries=max_queries,
                 )
             else:
                 # Fallback: rule-based query generation
@@ -79,7 +79,7 @@ class QueryEnhancer:
                 extraction_details=extraction_details,
                 enhancement_mode=enhancement_mode,
                 processing_time_ms=processing_time,
-                context_used=bool(conversation_context.strip())
+                context_used=bool(conversation_context.strip()),
             )
 
             # Cache the result
@@ -96,7 +96,7 @@ class QueryEnhancer:
         self,
         user_query: str,
         conversation_context: str,
-        enhancement_mode: SearchEnhancementMode
+        enhancement_mode: SearchEnhancementMode,
     ) -> dict[str, Any]:
         """Stage 1: Extract and classify terms using NLP"""
 
@@ -111,9 +111,13 @@ class QueryEnhancer:
             entities = []
         else:
             # Configure extraction based on mode
-            max_keywords = 15 if enhancement_mode == SearchEnhancementMode.HYBRID else 10
+            max_keywords = (
+                15 if enhancement_mode == SearchEnhancementMode.HYBRID else 10
+            )
             keywords = self.extractor.extract_keywords(full_text, max_keywords)
-            entities = self.extractor.extract_entities(user_query)  # Focus entities on main query
+            entities = self.extractor.extract_entities(
+                user_query
+            )  # Focus entities on main query
 
         # Classify terms
         classification = self.classifier.classify_terms(keywords, entities, user_query)
@@ -122,7 +126,7 @@ class QueryEnhancer:
             "keywords": [kw.model_dump() for kw in keywords],
             "entities": entities,
             "classification": classification.model_dump(),
-            "extraction_performance": self.extractor.get_performance_info()
+            "extraction_performance": self.extractor.get_performance_info(),
         }
 
     async def _generate_structured_search_plan(
@@ -131,7 +135,7 @@ class QueryEnhancer:
         extraction_details: dict[str, Any],
         conversation_context: str,
         memory_constraints: SearchMemoryConstraints,
-        max_queries: int
+        max_queries: int,
     ) -> list[EnhancedSearchQuery]:
         """Stage 2: Generate structured search plan using LLM"""
 
@@ -139,19 +143,20 @@ class QueryEnhancer:
 
         # Create structured prompt for LLM
         prompt = self._build_enhancement_prompt(
-            user_query, classification, conversation_context, memory_constraints, max_queries
+            user_query,
+            classification,
+            conversation_context,
+            memory_constraints,
+            max_queries,
         )
 
         try:
             messages = [
                 {
                     "role": "system",
-                    "content": "You are a search query optimization expert. Generate optimized search queries in the exact JSON format requested. Focus on technical accuracy and search effectiveness."
+                    "content": "You are a search query optimization expert. Generate optimized search queries in the exact JSON format requested. Focus on technical accuracy and search effectiveness.",
                 },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
+                {"role": "user", "content": prompt},
             ]
 
             response = await self.ai_client.generate_response(messages)
@@ -162,7 +167,9 @@ class QueryEnhancer:
 
         except Exception as e:
             logger.warning(f"LLM enhancement failed: {e}")
-            return self._fallback_search_plan(user_query, extraction_details, max_queries)
+            return self._fallback_search_plan(
+                user_query, extraction_details, max_queries
+            )
 
     def _build_enhancement_prompt(
         self,
@@ -170,7 +177,7 @@ class QueryEnhancer:
         classification: TermClassification,
         conversation_context: str,
         memory_constraints: SearchMemoryConstraints,
-        max_queries: int
+        max_queries: int,
     ) -> str:
         """Build structured prompt for LLM query enhancement"""
 
@@ -178,7 +185,11 @@ class QueryEnhancer:
         context_section = ""
         if conversation_context.strip():
             # Limit context length to avoid overwhelming the prompt
-            limited_context = conversation_context[:500] + "..." if len(conversation_context) > 500 else conversation_context
+            limited_context = (
+                conversation_context[:500] + "..."
+                if len(conversation_context) > 500
+                else conversation_context
+            )
             context_section = f"""
 CONVERSATION CONTEXT:
 {limited_context}
@@ -189,9 +200,9 @@ Use this context to understand what the user might be looking for and refine the
         prompt = f"""Generate {max_queries} optimized search queries for: "{user_query}"
 {context_section}
 EXTRACTED TERMS:
-Must-have terms: {', '.join(classification.must_have_terms[:8])}
-Entities: {', '.join(classification.entities[:5])}
-Technical terms: {', '.join(classification.technical_terms[:5])}
+Must-have terms: {", ".join(classification.must_have_terms[:8])}
+Entities: {", ".join(classification.entities[:5])}
+Technical terms: {", ".join(classification.technical_terms[:5])}
 
 CONSTRAINTS:
 - Technical level: {memory_constraints.technical_level}
@@ -226,10 +237,7 @@ Generate {max_queries} queries now:"""
         return prompt
 
     def _parse_llm_response(
-        self,
-        response: str,
-        original_query: str,
-        max_queries: int
+        self, response: str, original_query: str, max_queries: int
     ) -> list[EnhancedSearchQuery]:
         """Parse LLM JSON response into structured queries"""
 
@@ -248,30 +256,31 @@ Generate {max_queries} queries now:"""
 
             enhanced_queries = []
             for i, query_data in enumerate(queries_data[:max_queries]):
-                enhanced_queries.append(EnhancedSearchQuery(
-                    query=query_data.get("query", original_query),
-                    priority=query_data.get("priority", i + 1),
-                    expected_results=query_data.get("expected_results", 10),
-                    rationale=query_data.get("rationale", "Generated query")
-                ))
+                enhanced_queries.append(
+                    EnhancedSearchQuery(
+                        query=query_data.get("query", original_query),
+                        priority=query_data.get("priority", i + 1),
+                        expected_results=query_data.get("expected_results", 10),
+                        rationale=query_data.get("rationale", "Generated query"),
+                    )
+                )
 
             return enhanced_queries
 
         except Exception as e:
             logger.warning(f"Failed to parse LLM response: {e}")
             # Return original query as fallback
-            return [EnhancedSearchQuery(
-                query=original_query,
-                priority=1,
-                expected_results=10,
-                rationale="Fallback to original query due to parsing error"
-            )]
+            return [
+                EnhancedSearchQuery(
+                    query=original_query,
+                    priority=1,
+                    expected_results=10,
+                    rationale="Fallback to original query due to parsing error",
+                )
+            ]
 
     def _fallback_search_plan(
-        self,
-        user_query: str,
-        extraction_details: dict[str, Any],
-        max_queries: int
+        self, user_query: str, extraction_details: dict[str, Any], max_queries: int
     ) -> list[EnhancedSearchQuery]:
         """Generate search plan using rule-based approach (no LLM)"""
 
@@ -279,23 +288,27 @@ Generate {max_queries} queries now:"""
         queries = []
 
         # Query 1: Original query (baseline)
-        queries.append(EnhancedSearchQuery(
-            query=user_query,
-            priority=1,
-            expected_results=10,
-            rationale="Original user query"
-        ))
+        queries.append(
+            EnhancedSearchQuery(
+                query=user_query,
+                priority=1,
+                expected_results=10,
+                rationale="Original user query",
+            )
+        )
 
         if max_queries > 1 and classification.must_have_terms:
             # Query 2: Must-have terms optimized
             must_have_query = " ".join(classification.must_have_terms[:5])
             if must_have_query.strip() and must_have_query != user_query:
-                queries.append(EnhancedSearchQuery(
-                    query=must_have_query,
-                    priority=2,
-                    expected_results=8,
-                    rationale="Focused on key terms"
-                ))
+                queries.append(
+                    EnhancedSearchQuery(
+                        query=must_have_query,
+                        priority=2,
+                        expected_results=8,
+                        rationale="Focused on key terms",
+                    )
+                )
 
         if max_queries > 2 and classification.entities:
             # Query 3: Entity-focused with quotes
@@ -308,12 +321,14 @@ Generate {max_queries} queries now:"""
 
             entity_query = " ".join(entity_parts + classification.technical_terms[:2])
             if entity_query.strip() and len(entity_query) > 3:
-                queries.append(EnhancedSearchQuery(
-                    query=entity_query,
-                    priority=3,
-                    expected_results=6,
-                    rationale="Entity and technical term focused"
-                ))
+                queries.append(
+                    EnhancedSearchQuery(
+                        query=entity_query,
+                        priority=3,
+                        expected_results=6,
+                        rationale="Entity and technical term focused",
+                    )
+                )
 
         return queries[:max_queries]
 
@@ -321,7 +336,7 @@ Generate {max_queries} queries now:"""
         self,
         user_query: str,
         enhancement_mode: SearchEnhancementMode,
-        start_time: float
+        start_time: float,
     ) -> EnhancedSearchPlan:
         """Create a minimal fallback plan when enhancement fails"""
 
@@ -329,16 +344,18 @@ Generate {max_queries} queries now:"""
 
         return EnhancedSearchPlan(
             original_query=user_query,
-            enhanced_queries=[EnhancedSearchQuery(
-                query=user_query,
-                priority=1,
-                expected_results=10,
-                rationale="Fallback due to enhancement failure"
-            )],
+            enhanced_queries=[
+                EnhancedSearchQuery(
+                    query=user_query,
+                    priority=1,
+                    expected_results=10,
+                    rationale="Fallback due to enhancement failure",
+                )
+            ],
             extraction_details={"error": "Enhancement failed, using original query"},
             enhancement_mode=enhancement_mode,
             processing_time_ms=processing_time,
-            context_used=False
+            context_used=False,
         )
 
     def clear_cache(self):
@@ -350,5 +367,5 @@ Generate {max_queries} queries now:"""
         """Get cache statistics"""
         return {
             "cached_queries": len(self._enhancement_cache),
-            "extractor_info": self.extractor.get_performance_info()
+            "extractor_info": self.extractor.get_performance_info(),
         }

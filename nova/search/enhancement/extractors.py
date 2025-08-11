@@ -16,10 +16,11 @@ logger = logging.getLogger(__name__)
 
 class ExtractionBackend(str, Enum):
     """Available keyword extraction backends"""
-    YAKE_ONLY = "yake_only"          # Fast, lightweight (default)
-    KEYBERT_ONLY = "keybert_only"    # Semantic, requires transformers
-    HYBRID = "hybrid"                # YAKE + KeyBERT for best results
-    ADAPTIVE = "adaptive"            # Auto-choose based on query complexity
+
+    YAKE_ONLY = "yake_only"  # Fast, lightweight (default)
+    KEYBERT_ONLY = "keybert_only"  # Semantic, requires transformers
+    HYBRID = "hybrid"  # YAKE + KeyBERT for best results
+    ADAPTIVE = "adaptive"  # Auto-choose based on query complexity
 
 
 class ExtractionConfig(BaseModel):
@@ -61,19 +62,25 @@ class KeywordExtractor:
                 self._nlp = None
 
         # Check for KeyBERT availability
-        if self.config.backend in [ExtractionBackend.KEYBERT_ONLY, ExtractionBackend.HYBRID]:
+        if self.config.backend in [
+            ExtractionBackend.KEYBERT_ONLY,
+            ExtractionBackend.HYBRID,
+        ]:
             self._initialize_keybert()
 
     def _initialize_keybert(self) -> bool:
         """Initialize KeyBERT if available"""
         try:
             from keybert import KeyBERT
+
             self._keybert = KeyBERT(model=self.config.keybert_model)
             self._keybert_available = True
             logger.info(f"KeyBERT initialized with model: {self.config.keybert_model}")
             return True
         except ImportError:
-            logger.warning("KeyBERT not available. Install with: uv add keybert sentence-transformers")
+            logger.warning(
+                "KeyBERT not available. Install with: uv add keybert sentence-transformers"
+            )
             self._keybert_available = False
             return False
         except Exception as e:
@@ -81,7 +88,9 @@ class KeywordExtractor:
             self._keybert_available = False
             return False
 
-    def extract_keywords(self, text: str, max_keywords: int = None) -> list[KeywordResult]:
+    def extract_keywords(
+        self, text: str, max_keywords: int = None
+    ) -> list[KeywordResult]:
         """Extract keywords using the configured backend"""
         start_time = time.time()
         max_keywords = max_keywords or self.config.yake_max_keywords
@@ -99,7 +108,9 @@ class KeywordExtractor:
             results = self._extract_yake_only(text, max_keywords)
 
         processing_time = (time.time() - start_time) * 1000
-        logger.debug(f"Keyword extraction took {processing_time:.1f}ms using {self.config.backend}")
+        logger.debug(
+            f"Keyword extraction took {processing_time:.1f}ms using {self.config.backend}"
+        )
 
         return results
 
@@ -110,10 +121,13 @@ class KeywordExtractor:
             if self._nlp:
                 doc = self._nlp(text)
                 # Remove stop words and punctuation, keep meaningful tokens
-                processed_text = " ".join([
-                    token.text for token in doc
-                    if not token.is_stop and not token.is_punct and token.is_alpha
-                ])
+                processed_text = " ".join(
+                    [
+                        token.text
+                        for token in doc
+                        if not token.is_stop and not token.is_punct and token.is_alpha
+                    ]
+                )
             else:
                 processed_text = text
 
@@ -123,7 +137,7 @@ class KeywordExtractor:
                 n=self.config.yake_n,
                 dedupLim=self.config.yake_deduplication_threshold,
                 windowsSize=self.config.yake_window_size,
-                top=max_keywords
+                top=max_keywords,
             )
 
             keywords = kw_extractor.extract_keywords(processed_text)
@@ -134,8 +148,8 @@ class KeywordExtractor:
                 if isinstance(item, tuple) and len(item) == 2:
                     keyword, score = item  # YAKE returns (keyword, score)
                 elif isinstance(item, dict):
-                    score = item.get('score', 0.0)
-                    keyword = item.get('keyword', '')
+                    score = item.get("score", 0.0)
+                    keyword = item.get("keyword", "")
                 else:
                     # Skip malformed items
                     continue
@@ -154,12 +168,14 @@ class KeywordExtractor:
                 # YAKE returns lower scores for better keywords, invert for consistency
                 normalized_score = 1.0 / (1.0 + score)
 
-                results.append(KeywordResult(
-                    keyword=keyword,
-                    score=normalized_score,
-                    type=self._classify_keyword_type(keyword),
-                    source="yake"
-                ))
+                results.append(
+                    KeywordResult(
+                        keyword=keyword,
+                        score=normalized_score,
+                        type=self._classify_keyword_type(keyword),
+                        source="yake",
+                    )
+                )
 
             return results
 
@@ -167,7 +183,9 @@ class KeywordExtractor:
             logger.error(f"YAKE extraction failed: {e}")
             return []
 
-    def _extract_keybert_only(self, text: str, max_keywords: int) -> list[KeywordResult]:
+    def _extract_keybert_only(
+        self, text: str, max_keywords: int
+    ) -> list[KeywordResult]:
         """Extract keywords using KeyBERT only"""
         if not self._keybert_available:
             logger.warning("KeyBERT not available, falling back to YAKE")
@@ -179,27 +197,29 @@ class KeywordExtractor:
                 keywords = self._keybert.extract_keywords(
                     text,
                     keyphrase_ngram_range=(1, 3),
-                    stop_words='english',
+                    stop_words="english",
                     use_mmr=True,
                     diversity=self.config.keybert_diversity,
-                    top_k=max_keywords
+                    top_k=max_keywords,
                 )
             else:
                 keywords = self._keybert.extract_keywords(
                     text,
                     keyphrase_ngram_range=(1, 3),
-                    stop_words='english',
-                    top_k=max_keywords
+                    stop_words="english",
+                    top_k=max_keywords,
                 )
 
             results = []
             for keyword, score in keywords:
-                results.append(KeywordResult(
-                    keyword=keyword,
-                    score=score,
-                    type=self._classify_keyword_type(keyword),
-                    source="keybert"
-                ))
+                results.append(
+                    KeywordResult(
+                        keyword=keyword,
+                        score=score,
+                        type=self._classify_keyword_type(keyword),
+                        source="keybert",
+                    )
+                )
 
             return results
 
@@ -265,7 +285,9 @@ class KeywordExtractor:
         except Exception:
             return "general"
 
-    def _merge_keyword_results(self, results: list[KeywordResult]) -> list[KeywordResult]:
+    def _merge_keyword_results(
+        self, results: list[KeywordResult]
+    ) -> list[KeywordResult]:
         """Merge keyword results from different sources, handling duplicates"""
         keyword_map = {}
 
@@ -282,7 +304,7 @@ class KeywordExtractor:
                         keyword=result.keyword,
                         score=max(result.score, existing.score),
                         type=result.type,
-                        source=combined_source
+                        source=combined_source,
                     )
             else:
                 keyword_map[key] = result
@@ -312,6 +334,6 @@ class KeywordExtractor:
             "yake_settings": {
                 "max_keywords": self.config.yake_max_keywords,
                 "n_gram_size": self.config.yake_n,
-                "language": self.config.yake_lang
-            }
+                "language": self.config.yake_lang,
+            },
         }

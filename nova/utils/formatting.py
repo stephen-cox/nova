@@ -71,7 +71,7 @@ def format_file_size(size_bytes: int) -> str:
 
 def format_search_results(search_response) -> str:
     """Format search results for display in chat"""
-    from nova.core.search import SearchResponse
+    from nova.search.models import SearchResponse
 
     if not isinstance(search_response, SearchResponse):
         return "Invalid search response"

@@ -36,6 +36,10 @@ test = [
     "pytest-cov>=4.0.0",
     "pytest-asyncio>=1.1.0",
 ]
+search-semantic = [
+    "keybert>=0.8.0",
+    "sentence-transformers>=2.2.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

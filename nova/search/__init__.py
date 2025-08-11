@@ -11,5 +11,5 @@ __all__ = [
     "SearchResponse",
     "EnhancedSearchPlan",
     "SearchConfig",
-    "QueryEnhancer"
+    "QueryEnhancer",
 ]

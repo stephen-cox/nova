@@ -1,7 +1,6 @@
 """Tests for web search tools functionality"""
 
 import sys
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -18,19 +17,15 @@ class TestWebSearch:
     async def test_web_search_fallback(self):
         """Test web search with fallback when SearchManager raises exception"""
         # Remove the modules from sys.modules to force import failure
-        modules_to_remove = [
-            'nova.search',
-            'nova.search.models',
-            'nova.core.config'
-        ]
-        
+        modules_to_remove = ["nova.search", "nova.search.models", "nova.core.config"]
+
         # Store original modules
         original_modules = {}
         for module in modules_to_remove:
             if module in sys.modules:
                 original_modules[module] = sys.modules[module]
                 del sys.modules[module]
-        
+
         try:
             result = await web_search("test query")
 
@@ -73,7 +68,7 @@ class TestWebSearch:
         result = await web_search("test query", max_results=100)
         assert result["query"] == "test query"
 
-    @pytest.mark.asyncio  
+    @pytest.mark.asyncio
     async def test_web_search_basic_functionality(self):
         """Test web search basic functionality (will use fallback but should work)"""
         result = await web_search("test query", max_results=3)

@@ -190,7 +190,6 @@ class TestBaseSearchClient:
             assert success is False
             assert content is None
 
-
     def test_initialization_with_defaults(self):
         """Test client initialization with default timeout"""
         config = {}
@@ -198,7 +197,6 @@ class TestBaseSearchClient:
 
         assert client.config == config
         assert client.client.timeout.read == 10.0  # Default timeout
-
 
 
 class TestDuckDuckGoSearchClient:

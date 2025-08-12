@@ -20,7 +20,7 @@ class TestSearchEngineErrorHandling:
         """Test handling of HTTP timeout errors"""
         client = DuckDuckGoSearchClient({"timeout": 1.0})
 
-        with patch.object(client.client, 'get') as mock_get:
+        with patch.object(client.client, "get") as mock_get:
             mock_get.side_effect = httpx.TimeoutException("Request timed out")
 
             with pytest.raises(SearchError, match="DuckDuckGo search failed"):
@@ -31,7 +31,7 @@ class TestSearchEngineErrorHandling:
         """Test handling of HTTP connection errors"""
         client = DuckDuckGoSearchClient({})
 
-        with patch.object(client.client, 'get') as mock_get:
+        with patch.object(client.client, "get") as mock_get:
             mock_get.side_effect = httpx.ConnectError("Connection failed")
 
             with pytest.raises(SearchError, match="DuckDuckGo search failed"):
@@ -49,7 +49,7 @@ class TestSearchEngineErrorHandling:
             "500 Server Error", request=MagicMock(), response=mock_response
         )
 
-        with patch.object(client.client, 'get', return_value=mock_response):
+        with patch.object(client.client, "get", return_value=mock_response):
             with pytest.raises(SearchError, match="DuckDuckGo search failed"):
                 await client.search("test query")
 
@@ -63,11 +63,13 @@ class TestSearchEngineErrorHandling:
         mock_response.text = "not json data"
         mock_response.raise_for_status = MagicMock()
 
-        with patch.object(client.client, 'get', return_value=mock_response):
-            # Should not raise, but return empty results
+        with patch.object(client.client, "get", return_value=mock_response):
+            # Should not raise, but return helpful error message
             result = await client.search("test query")
-            assert len(result.results) == 0
-            assert result.total_results == 0
+            assert len(result.results) == 1
+            assert result.total_results == 1
+            assert result.results[0].title == "Search results not available"
+            assert "Unable to parse search results" in result.results[0].snippet
 
     @pytest.mark.asyncio
     async def test_content_extraction_errors(self):
@@ -75,12 +77,18 @@ class TestSearchEngineErrorHandling:
         client = DuckDuckGoSearchClient({})
 
         # Test all extraction methods failing
-        with patch.object(client.client, 'get') as mock_get:
-            mock_get.side_effect = Exception("Network error")
+        with patch("nova.search.engines.base.Article") as mock_article_class:
+            # Mock newspaper3k to fail
+            mock_article = MagicMock()
+            mock_article.download.side_effect = Exception("Network error")
+            mock_article_class.return_value = mock_article
 
-            content, success = await client.extract_content("https://example.com")
-            assert success is False
-            assert content is None
+            with patch.object(client.client, "get") as mock_get:
+                mock_get.side_effect = Exception("Network error")
+
+                content, success = await client.extract_content("https://example.com")
+                assert success is False
+                assert content is None
 
 
 class TestQueryEnhancementErrorHandling:
@@ -90,14 +98,15 @@ class TestQueryEnhancementErrorHandling:
     async def test_ai_client_failure(self):
         """Test handling of AI client failures"""
         mock_ai_client = AsyncMock()
-        mock_ai_client.generate_response.side_effect = Exception("AI service unavailable")
+        mock_ai_client.generate_response.side_effect = Exception(
+            "AI service unavailable"
+        )
 
         enhancer = QueryEnhancer(ai_client=mock_ai_client)
 
         # Should fallback to rule-based enhancement
         result = await enhancer.enhance_query(
-            "Python programming",
-            enhancement_mode=SearchEnhancementMode.FAST
+            "Python programming", enhancement_mode=SearchEnhancementMode.FAST
         )
 
         assert result.original_query == "Python programming"
@@ -113,8 +122,7 @@ class TestQueryEnhancementErrorHandling:
         enhancer = QueryEnhancer(ai_client=mock_ai_client)
 
         result = await enhancer.enhance_query(
-            "Python programming",
-            enhancement_mode=SearchEnhancementMode.FAST
+            "Python programming", enhancement_mode=SearchEnhancementMode.FAST
         )
 
         # Should fallback to original query
@@ -141,7 +149,7 @@ class TestQueryEnhancementErrorHandling:
         extractor = KeywordExtractor()
 
         # Mock spaCy to fail
-        with patch('nova.search.enhancement.extractors.spacy.load') as mock_load:
+        with patch("nova.search.enhancement.extractors.spacy.load") as mock_load:
             mock_load.side_effect = Exception("spaCy model not found")
 
             entities = extractor.extract_entities("Python programming tutorial")
@@ -169,7 +177,9 @@ class TestSearchManagerErrorHandling:
         config = {"search": {"enabled": True}}
         manager = EnhancedSearchManager(config)
 
-        with pytest.raises(SearchError, match="Search provider 'nonexistent' not available"):
+        with pytest.raises(
+            SearchError, match="Search provider 'nonexistent' not available"
+        ):
             await manager.enhanced_search("test query", provider="nonexistent")
 
     @pytest.mark.asyncio
@@ -179,29 +189,30 @@ class TestSearchManagerErrorHandling:
         manager = EnhancedSearchManager(config)
 
         # Mock enhancement to work but search execution to fail
-        with patch.object(manager, 'query_enhancer') as mock_enhancer:
+        with patch.object(manager, "query_enhancer") as mock_enhancer:
             mock_enhancer.enhance_query.side_effect = Exception("Enhancement failed")
 
             # Mock single search to work
-            with patch.object(manager, '_execute_single_search') as mock_single:
+            with patch.object(manager, "_execute_single_search") as mock_single:
                 from nova.search.models import SearchResponse, SearchResult
 
                 mock_single.return_value = SearchResponse(
                     query="test query",
-                    results=[SearchResult(
-                        title="Fallback Result",
-                        url="https://example.com",
-                        snippet="Fallback content",
-                        source="example.com"
-                    )],
+                    results=[
+                        SearchResult(
+                            title="Fallback Result",
+                            url="https://example.com",
+                            snippet="Fallback content",
+                            source="example.com",
+                        )
+                    ],
                     total_results=1,
                     search_time_ms=100,
-                    provider="DuckDuckGo"
+                    provider="DuckDuckGo",
                 )
 
                 result = await manager.enhanced_search(
-                    "test query",
-                    enhancement_mode=SearchEnhancementMode.FAST
+                    "test query", enhancement_mode=SearchEnhancementMode.FAST
                 )
 
                 assert result["query"] == "test query"
@@ -225,21 +236,23 @@ class TestSearchManagerErrorHandling:
         manager.providers["duckduckgo"] = mock_client
 
         # Test that manager handles partial failures gracefully
-        with patch.object(manager, '_execute_enhanced_searches') as mock_execute:
+        with patch.object(manager, "_execute_enhanced_searches") as mock_execute:
             from nova.search.models import SearchResponse, SearchResult
 
             # Mock successful execution despite partial failures
             mock_execute.return_value = SearchResponse(
                 query="test query",
-                results=[SearchResult(
-                    title="Partial Success",
-                    url="https://example.com",
-                    snippet="Some results available",
-                    source="example.com"
-                )],
+                results=[
+                    SearchResult(
+                        title="Partial Success",
+                        url="https://example.com",
+                        snippet="Some results available",
+                        source="example.com",
+                    )
+                ],
                 total_results=1,
                 search_time_ms=200,
-                provider="DuckDuckGo"
+                provider="DuckDuckGo",
             )
 
             result = await manager.enhanced_search("test query")
@@ -252,12 +265,12 @@ class TestSearchManagerErrorHandling:
         mock_ai_client.generate_response.side_effect = Exception("Summarization failed")
 
         from nova.search.manager import ContentSummarizer
+
         summarizer = ContentSummarizer(mock_ai_client)
 
         # Should fallback to simple truncation
         summary = await summarizer.summarize_content(
-            "This is a long content that needs to be summarized. " * 10,
-            "test query"
+            "This is a long content that needs to be summarized. " * 10, "test query"
         )
 
         # Should not be empty and should be fallback content
@@ -282,7 +295,7 @@ class TestConfigurationErrorHandling:
             "search": {
                 "enabled": True,
                 "google": {"search_engine_id": "test_id"},  # Missing API key
-                "bing": {}  # Missing API key
+                "bing": {},  # Missing API key
             }
         }
 
@@ -299,7 +312,7 @@ class TestConfigurationErrorHandling:
         """Test handling when network is completely unavailable"""
         client = DuckDuckGoSearchClient({})
 
-        with patch.object(client.client, 'get') as mock_get:
+        with patch.object(client.client, "get") as mock_get:
             mock_get.side_effect = httpx.NetworkError("Network unreachable")
 
             with pytest.raises(SearchError):
@@ -323,26 +336,28 @@ class TestConfigurationErrorHandling:
         mock_ai_client.generate_response.side_effect = Exception("AI failed")
 
         # Should still work with fallback
-        with patch.object(manager, '_execute_single_search') as mock_single:
+        with patch.object(manager, "_execute_single_search") as mock_single:
             from nova.search.models import SearchResponse, SearchResult
 
             mock_single.return_value = SearchResponse(
                 query="test query",
-                results=[SearchResult(
-                    title="Test Result",
-                    url="https://example.com",
-                    snippet="Test content",
-                    source="example.com"
-                )],
+                results=[
+                    SearchResult(
+                        title="Test Result",
+                        url="https://example.com",
+                        snippet="Test content",
+                        source="example.com",
+                    )
+                ],
                 total_results=1,
                 search_time_ms=50,
-                provider="DuckDuckGo"
+                provider="DuckDuckGo",
             )
 
             result = await manager.enhanced_search(
                 "test query",
                 memory_constraints=constraints,
-                enhancement_mode=SearchEnhancementMode.FAST
+                enhancement_mode=SearchEnhancementMode.FAST,
             )
 
             assert result["query"] == "test query"

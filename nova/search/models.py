@@ -26,6 +26,12 @@ class SearchResult(BaseModel):
     extraction_success: bool = Field(
         default=False, description="Whether content extraction was successful"
     )
+    enhancement_priority: int | None = Field(
+        default=None, description="Search enhancement priority for ranking"
+    )
+    enhancement_rationale: str | None = Field(
+        default=None, description="Rationale for search enhancement"
+    )
 
 
 class SearchResponse(BaseModel):

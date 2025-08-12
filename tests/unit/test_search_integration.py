@@ -28,7 +28,9 @@ class TestSearchIntegration:
             }
         }
         mock_ai_client = AsyncMock()
-        mock_ai_client.generate_response = AsyncMock(return_value='[{"query": "Python async programming", "priority": 1, "expected_results": 10, "rationale": "Test query"}]')
+        mock_ai_client.generate_response = AsyncMock(
+            return_value='[{"query": "Python async programming", "priority": 1, "expected_results": 10, "rationale": "Test query"}]'
+        )
 
         manager = EnhancedSearchManager(config, ai_client=mock_ai_client)
 
@@ -108,7 +110,7 @@ class TestSearchIntegration:
         }
 
         # Mock single search to test fallback
-        with patch.object(manager, '_execute_single_search') as mock_single:
+        with patch.object(manager, "_execute_single_search") as mock_single:
             mock_single.return_value = SearchResponse(
                 query="test query",
                 results=[

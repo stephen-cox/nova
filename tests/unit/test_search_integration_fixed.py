@@ -54,7 +54,9 @@ class TestSearchIntegrationFixed:
             provider="DuckDuckGo",
         )
 
-        with patch.object(manager, "_execute_enhanced_searches", return_value=mock_search_response):
+        with patch.object(
+            manager, "_execute_enhanced_searches", return_value=mock_search_response
+        ):
             result = await manager.enhanced_search(
                 "Python async programming",
                 enhancement_mode=SearchEnhancementMode.FAST,
@@ -91,10 +93,11 @@ class TestSearchIntegrationFixed:
             provider="DuckDuckGo",
         )
 
-        with patch.object(manager, "_execute_single_search", return_value=mock_response):
+        with patch.object(
+            manager, "_execute_single_search", return_value=mock_response
+        ):
             result = await manager.enhanced_search(
-                "test query",
-                enhancement_mode=SearchEnhancementMode.DISABLED
+                "test query", enhancement_mode=SearchEnhancementMode.DISABLED
             )
 
         assert result["query"] == "test query"
@@ -119,9 +122,7 @@ class TestSearchIntegrationFixed:
         manager = EnhancedSearchManager(config, ai_client=mock_ai_client)
 
         constraints = SearchMemoryConstraints(
-            technical_level="expert",
-            timeframe="recent",
-            locale="en-US"
+            technical_level="expert", timeframe="recent", locale="en-US"
         )
 
         # Mock query enhancer to verify constraints are passed
@@ -133,7 +134,7 @@ class TestSearchIntegrationFixed:
                         query="enhanced test query",
                         priority=1,
                         expected_results=5,
-                        rationale="Expert level recent results"
+                        rationale="Expert level recent results",
                     )
                 ],
                 extraction_details={"keywords": [], "entities": []},
@@ -150,13 +151,13 @@ class TestSearchIntegrationFixed:
                     results=[],
                     total_results=0,
                     search_time_ms=0,
-                    provider="DuckDuckGo"
+                    provider="DuckDuckGo",
                 )
 
                 await manager.enhanced_search(
                     "test query",
                     memory_constraints=constraints,
-                    enhancement_mode=SearchEnhancementMode.FAST
+                    enhancement_mode=SearchEnhancementMode.FAST,
                 )
 
                 # Verify constraints were passed to enhancer
@@ -180,13 +181,13 @@ class TestSearchIntegrationFixed:
                 query="Python async tutorial",
                 priority=1,
                 expected_results=5,
-                rationale="Main query"
+                rationale="Main query",
             ),
             EnhancedSearchQuery(
                 query="Python asyncio guide",
                 priority=2,
                 expected_results=3,
-                rationale="Alternative query"
+                rationale="Alternative query",
             ),
         ]
 
@@ -208,18 +209,32 @@ class TestSearchIntegrationFixed:
             responses = [
                 SearchResponse(
                     query="Python async tutorial",
-                    results=[SearchResult(title="Tutorial", url="https://tutorial.com", snippet="Tutorial", source="tutorial.com")],
+                    results=[
+                        SearchResult(
+                            title="Tutorial",
+                            url="https://tutorial.com",
+                            snippet="Tutorial",
+                            source="tutorial.com",
+                        )
+                    ],
                     total_results=1,
                     search_time_ms=100,
-                    provider="DuckDuckGo"
+                    provider="DuckDuckGo",
                 ),
                 SearchResponse(
                     query="Python asyncio guide",
-                    results=[SearchResult(title="Guide", url="https://guide.com", snippet="Guide", source="guide.com")],
+                    results=[
+                        SearchResult(
+                            title="Guide",
+                            url="https://guide.com",
+                            snippet="Guide",
+                            source="guide.com",
+                        )
+                    ],
                     total_results=1,
                     search_time_ms=120,
-                    provider="DuckDuckGo"
-                )
+                    provider="DuckDuckGo",
+                ),
             ]
             mock_client.search.side_effect = responses
             manager.providers["duckduckgo"] = mock_client
@@ -227,7 +242,7 @@ class TestSearchIntegrationFixed:
             result = await manager.enhanced_search(
                 "Python async",
                 enhancement_mode=SearchEnhancementMode.FAST,
-                max_results=5
+                max_results=5,
             )
 
         # Should have results from concurrent execution

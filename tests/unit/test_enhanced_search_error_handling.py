@@ -321,11 +321,14 @@ class TestConfigurationErrorHandling:
     @pytest.mark.asyncio
     async def test_memory_constraints_with_errors(self):
         """Test memory constraints handling when errors occur"""
-        from nova.search.models import SearchMemoryConstraints
+        from nova.search.models import (
+            SearchMemoryConstraints,
+            SearchResponse,
+            SearchResult,
+        )
 
         config = {"search": {"enabled": True}}
         mock_ai_client = AsyncMock()
-        manager = EnhancedSearchManager(config, ai_client=mock_ai_client)
 
         constraints = SearchMemoryConstraints(
             technical_level="expert",
@@ -336,23 +339,29 @@ class TestConfigurationErrorHandling:
         mock_ai_client.generate_response.side_effect = Exception("AI failed")
 
         # Should still work with fallback
-        with patch.object(manager, "_execute_single_search") as mock_single:
-            from nova.search.models import SearchResponse, SearchResult
-
-            mock_single.return_value = SearchResponse(
-                query="test query",
-                results=[
-                    SearchResult(
-                        title="Test Result",
-                        url="https://example.com",
-                        snippet="Test content",
-                        source="example.com",
-                    )
-                ],
-                total_results=1,
-                search_time_ms=50,
-                provider="DuckDuckGo",
+        with patch("nova.search.manager.DuckDuckGoSearchClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.search = AsyncMock(
+                return_value=SearchResponse(
+                    query="test query",
+                    results=[
+                        SearchResult(
+                            title="Test Result",
+                            url="https://example.com",
+                            snippet="Test content",
+                            source="example.com",
+                        )
+                    ],
+                    total_results=1,
+                    search_time_ms=50,
+                    provider="DuckDuckGo",
+                )
             )
+            mock_client.close = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            # Create manager after patching
+            manager = EnhancedSearchManager(config, ai_client=mock_ai_client)
 
             result = await manager.enhanced_search(
                 "test query",
@@ -362,3 +371,5 @@ class TestConfigurationErrorHandling:
 
             assert result["query"] == "test query"
             assert len(result["results"]) == 1
+
+            await manager.close()

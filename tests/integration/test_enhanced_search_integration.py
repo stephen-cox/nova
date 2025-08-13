@@ -88,12 +88,12 @@ class TestEnhancedSearchIntegration:
     ):
         """Test complete enhancement pipeline from query to results"""
 
-        with patch("nova.search.engines.DuckDuckGoSearchClient") as mock_client_class:
+        with patch("nova.search.manager.DuckDuckGoSearchClient") as mock_client_class:
             # Mock search client
             mock_client = AsyncMock()
             mock_client.search = AsyncMock(
                 return_value=SearchResponse(
-                    query="test query",
+                    query="Python async programming tutorial",
                     results=mock_search_results,
                     total_results=len(mock_search_results),
                     search_time_ms=100,
@@ -146,12 +146,12 @@ class TestEnhancedSearchIntegration:
     ):
         """Test search with enhancement disabled"""
 
-        with patch("nova.search.engines.DuckDuckGoSearchClient") as mock_client_class:
+        with patch("nova.search.manager.DuckDuckGoSearchClient") as mock_client_class:
             # Mock search client
             mock_client = AsyncMock()
             mock_client.search = AsyncMock(
                 return_value=SearchResponse(
-                    query="test query",
+                    query="simple search query",
                     results=mock_search_results,
                     total_results=len(mock_search_results),
                     search_time_ms=50,
@@ -191,11 +191,11 @@ class TestEnhancedSearchIntegration:
             side_effect=Exception("AI service unavailable")
         )
 
-        with patch("nova.search.engines.DuckDuckGoSearchClient") as mock_client_class:
+        with patch("nova.search.manager.DuckDuckGoSearchClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.search = AsyncMock(
                 return_value=SearchResponse(
-                    query="test query",
+                    query="Python async programming",
                     results=mock_search_results,
                     total_results=len(mock_search_results),
                     search_time_ms=75,
@@ -231,53 +231,53 @@ class TestEnhancedSearchIntegration:
         """Test concurrent execution of multiple enhanced queries"""
 
         # Configure AI client to return multiple queries for enhancement
-        mock_ai_client.generate_response.return_value = """[
+        mock_ai_client.generate_response = AsyncMock(
+            return_value="""[
             {"query": "concurrent search test enhanced", "priority": 1, "expected_results": 3, "rationale": "Original query"},
             {"query": "concurrent search optimization", "priority": 2, "expected_results": 3, "rationale": "Alternative query"}
         ]"""
+        )
 
-        with patch("nova.search.engines.DuckDuckGoSearchClient") as mock_client_class:
-            # Track call count for concurrent execution
-            call_count = 0
+        # Track call count for concurrent execution
+        call_count = 0
 
-            async def mock_search_with_delay(*args, **kwargs):
-                nonlocal call_count
-                call_count += 1
-                await asyncio.sleep(0.01)  # Small delay to simulate real search
-                return SearchResponse(
-                    query=f"query_{call_count}",
-                    results=mock_search_results[:1],  # Return 1 result per query
-                    total_results=1,
-                    search_time_ms=20,
-                    provider="DuckDuckGo",
-                )
-
-            mock_client = AsyncMock()
-            mock_client.search = mock_search_with_delay
-            mock_client.close = AsyncMock()
-            mock_client_class.return_value = mock_client
-
-            manager = EnhancedSearchManager(
-                mock_search_config, ai_client=mock_ai_client
+        async def mock_search_with_delay(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            await asyncio.sleep(0.01)  # Small delay to simulate real search
+            return SearchResponse(
+                query=f"query_{call_count}",
+                results=mock_search_results[:1],  # Return 1 result per query
+                total_results=1,
+                search_time_ms=20,
+                provider="DuckDuckGo",
             )
 
-            start_time = asyncio.get_event_loop().time()
-            result = await manager.enhanced_search(
-                query="concurrent search test",
-                enhancement_mode=SearchEnhancementMode.FAST,
-                max_results=6,
-            )
-            end_time = asyncio.get_event_loop().time()
+        mock_client = AsyncMock()
+        mock_client.search = mock_search_with_delay
+        mock_client.close = AsyncMock()
 
-            # Should execute multiple queries concurrently
-            assert call_count >= 2  # AI should generate multiple enhanced queries
-            assert len(result["results"]) > 0
+        manager = EnhancedSearchManager(mock_search_config, ai_client=mock_ai_client)
+        # Replace the real client with our mock after initialization
+        manager.providers["duckduckgo"] = mock_client
 
-            # Should be faster than sequential execution (rough check)
-            execution_time = end_time - start_time
-            assert execution_time < 1.0  # More generous timing for CI
+        start_time = asyncio.get_event_loop().time()
+        result = await manager.enhanced_search(
+            query="concurrent search test",
+            enhancement_mode=SearchEnhancementMode.FAST,
+            max_results=6,
+        )
+        end_time = asyncio.get_event_loop().time()
 
-            await manager.close()
+        # Should execute multiple queries concurrently
+        assert call_count >= 2  # AI should generate multiple enhanced queries
+        assert len(result["results"]) > 0
+
+        # Should be faster than sequential execution (rough check)
+        execution_time = end_time - start_time
+        assert execution_time < 1.0  # More generous timing for CI
+
+        await manager.close()
 
     @pytest.mark.asyncio
     async def test_content_extraction_and_summarization(
@@ -293,7 +293,7 @@ class TestEnhancedSearchIntegration:
 
         mock_ai_client.generate_response = AsyncMock(side_effect=mock_ai_response)
 
-        with patch("nova.search.engines.DuckDuckGoSearchClient") as mock_client_class:
+        with patch("nova.search.manager.DuckDuckGoSearchClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.search = AsyncMock(
                 return_value=SearchResponse(
@@ -340,12 +340,12 @@ class TestEnhancedSearchIntegration:
         mock_search_config["search"]["bing"] = {"api_key": "test_bing_key"}
 
         with (
-            patch("nova.search.engines.DuckDuckGoSearchClient"),
-            patch("nova.search.engines.GoogleSearchClient") as mock_google_class,
-            patch("nova.search.engines.BingSearchClient") as mock_bing_class,
+            patch("nova.search.manager.DuckDuckGoSearchClient") as mock_ddg_class,
+            patch("nova.search.manager.GoogleSearchClient") as mock_google_class,
+            patch("nova.search.manager.BingSearchClient") as mock_bing_class,
         ):
             # Mock all providers
-            for mock_class in [mock_google_class, mock_bing_class]:
+            for mock_class in [mock_ddg_class, mock_google_class, mock_bing_class]:
                 mock_client = AsyncMock()
                 mock_client.close = AsyncMock()
                 mock_class.return_value = mock_client
@@ -368,7 +368,7 @@ class TestEnhancedSearchIntegration:
     ):
         """Test error handling and graceful recovery"""
 
-        with patch("nova.search.engines.DuckDuckGoSearchClient") as mock_client_class:
+        with patch("nova.search.manager.DuckDuckGoSearchClient") as mock_client_class:
             # Make first search fail, second succeed
             call_count = 0
 
@@ -431,35 +431,33 @@ class TestWebSearchToolIntegration:
             ) as mock_manager_class:
                 # Mock search manager
                 mock_manager = AsyncMock()
-                mock_manager.enhanced_search = AsyncMock(
-                    return_value={
-                        "query": "test query",
-                        "provider": "duckduckgo",
-                        "results": [
+                mock_manager.enhanced_search.return_value = {
+                    "query": "test query",
+                    "provider": "duckduckgo",
+                    "results": [
+                        {
+                            "title": "Test Result",
+                            "url": "https://example.com",
+                            "snippet": "Test snippet",
+                            "source": "example.com",
+                            "content_summary": "AI summary",
+                        }
+                    ],
+                    "total_results": 1,
+                    "search_time_ms": 100,
+                    "enhancement_details": {
+                        "mode": SearchEnhancementMode.FAST,
+                        "processing_time_ms": 50,
+                        "context_used": False,
+                        "enhanced_queries": [
                             {
-                                "title": "Test Result",
-                                "url": "https://example.com",
-                                "snippet": "Test snippet",
-                                "source": "example.com",
-                                "content_summary": "AI summary",
+                                "query": "enhanced test query",
+                                "priority": 1,
+                                "rationale": "Enhanced version",
                             }
                         ],
-                        "total_results": 1,
-                        "search_time_ms": 100,
-                        "enhancement_details": {
-                            "mode": SearchEnhancementMode.FAST,
-                            "processing_time_ms": 50,
-                            "context_used": False,
-                            "enhanced_queries": [
-                                {
-                                    "query": "enhanced test query",
-                                    "priority": 1,
-                                    "rationale": "Enhanced version",
-                                }
-                            ],
-                        },
-                    }
-                )
+                    },
+                }
                 mock_manager.close = AsyncMock()
                 mock_manager_class.return_value = mock_manager
 
@@ -522,15 +520,13 @@ class TestWebSearchToolIntegration:
                 "nova.search.manager.EnhancedSearchManager"
             ) as mock_manager_class:
                 mock_manager = AsyncMock()
-                mock_manager.enhanced_search = AsyncMock(
-                    return_value={
-                        "query": "test",
-                        "provider": "duckduckgo",
-                        "results": [],
-                        "total_results": 0,
-                        "search_time_ms": 10,
-                    }
-                )
+                mock_manager.enhanced_search.return_value = {
+                    "query": "test",
+                    "provider": "duckduckgo",
+                    "results": [],
+                    "total_results": 0,
+                    "search_time_ms": 10,
+                }
                 mock_manager.close = AsyncMock()
                 mock_manager_class.return_value = mock_manager
 

@@ -1580,13 +1580,28 @@ Content: {content}
                                 # Try to parse as JSON
                                 arguments[key] = json.loads(value)
                             else:
-                                arguments[key] = value
+                                # For string type, strip surrounding quotes if present and handle escaped quotes
+                                if value.startswith('"') and value.endswith('"'):
+                                    # Remove surrounding quotes and unescape internal quotes
+                                    arguments[key] = value[1:-1].replace('\\"', '"')
+                                elif value.startswith("'") and value.endswith("'"):
+                                    # Remove surrounding quotes and unescape internal quotes
+                                    arguments[key] = value[1:-1].replace("\\'", "'")
+                                else:
+                                    arguments[key] = value
                         except (ValueError, json.JSONDecodeError) as e:
                             print_error(f"Invalid value for {key}: {value} ({e})")
                             return None
                     else:
-                        # Unknown parameter, treat as string
-                        arguments[key] = value
+                        # Unknown parameter, treat as string and strip quotes if present
+                        if value.startswith('"') and value.endswith('"'):
+                            # Remove surrounding quotes and unescape internal quotes
+                            arguments[key] = value[1:-1].replace('\\"', '"')
+                        elif value.startswith("'") and value.endswith("'"):
+                            # Remove surrounding quotes and unescape internal quotes
+                            arguments[key] = value[1:-1].replace("\\'", "'")
+                        else:
+                            arguments[key] = value
                 else:
                     print_error(f"Invalid argument format: {arg}")
                     print_info(

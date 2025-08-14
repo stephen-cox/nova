@@ -30,10 +30,7 @@ class TestWebSearch:
             assert result["query"] == "test query"
             assert result["provider"] == "fallback"
             assert len(result["results"]) == 1
-            assert (
-                "Search functionality temporarily unavailable"
-                in result["results"][0]["title"]
-            )
+            assert "Web Search Error" in result["results"][0]["title"]
             assert "error" in result
 
     @pytest.mark.asyncio

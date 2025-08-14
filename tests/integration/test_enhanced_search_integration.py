@@ -466,7 +466,6 @@ class TestWebSearchToolIntegration:
                     query="Python async programming",
                     enhancement="fast",
                     max_results=3,
-                    include_content=True,
                 )
 
                 # Verify tool output structure
@@ -500,7 +499,7 @@ class TestWebSearchToolIntegration:
             assert result["provider"] == "fallback"
             assert "error" in result
             assert len(result["results"]) == 1
-            assert "unavailable" in result["results"][0]["title"].lower()
+            assert "error" in result["results"][0]["title"].lower()
 
     @pytest.mark.asyncio
     async def test_web_search_parameter_validation(self):

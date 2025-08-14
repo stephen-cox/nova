@@ -383,13 +383,20 @@ class EnhancedSearchManager:
         elif provider and provider not in self.providers:
             raise SearchError(f"Search provider '{provider}' not available")
         else:
-            # Use the first available provider (preferably Google, then Bing, then DuckDuckGo)
+            # Use configured default provider first
+            search_config = self.config.get("search", {})
+            default_provider = search_config.get("default_provider", "duckduckgo")
+
+            if default_provider in self.providers:
+                return self.providers[default_provider]
+
+            # Fallback to any available provider
             preferred_order = ["google", "bing", "duckduckgo"]
             for pref_provider in preferred_order:
                 if pref_provider in self.providers:
                     return self.providers[pref_provider]
 
-            # Fallback to first available
+            # Final fallback to first available
             return next(iter(self.providers.values()))
 
     async def _enhance_results_with_content(

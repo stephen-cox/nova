@@ -4,10 +4,13 @@ These tools provide advanced web search functionality with intelligent query enh
 and current time information.
 """
 
+import logging
 from datetime import UTC, datetime
 
 from nova.models.tools import PermissionLevel, ToolCategory, ToolExample
 from nova.tools import tool
+
+logger = logging.getLogger(__name__)
 
 
 @tool(
@@ -17,8 +20,13 @@ from nova.tools import tool
     tags=["web", "search", "internet", "nlp", "enhanced"],
     examples=[
         ToolExample(
+            description="Basic search using default provider",
+            arguments={"query": "Python async programming"},
+            expected_result="Search results using default provider (DuckDuckGo)",
+        ),
+        ToolExample(
             description="Enhanced search with automatic optimization",
-            arguments={"query": "Python async programming", "enhancement": "auto"},
+            arguments={"query": "machine learning basics", "enhancement": "auto"},
             expected_result="Optimized search queries with extracted keywords and enhanced results",
         ),
         ToolExample(
@@ -38,7 +46,7 @@ from nova.tools import tool
             description="Technical search with specific provider",
             arguments={
                 "query": "Rust memory safety",
-                "provider": "google",
+                "provider": "duckduckgo",
                 "max_results": 3,
                 "technical_level": "expert",
             },
@@ -51,7 +59,6 @@ async def web_search(
     enhancement: str | None = None,
     provider: str | None = None,
     max_results: int | None = None,
-    include_content: bool = True,
     timeframe: str | None = None,
     technical_level: str | None = None,
     conversation_context: str | None = None,
@@ -69,9 +76,8 @@ async def web_search(
     Args:
         query: Search query or question
         enhancement: Enhancement mode (uses config default if None)
-        provider: Search provider (duckduckgo, google, bing)
+        provider: Search provider (duckduckgo, google, bing) - defaults to duckduckgo
         max_results: Maximum results to return (1-20)
-        include_content: Extract detailed content from pages
         timeframe: Preferred time range (recent, past_year, any)
         technical_level: Adjust query complexity (beginner, intermediate, expert)
         conversation_context: Recent conversation context for enhancement (optional)
@@ -84,9 +90,16 @@ async def web_search(
         from nova.core.config import config_manager
         from nova.search.manager import EnhancedSearchManager
         from nova.search.models import SearchEnhancementMode, SearchMemoryConstraints
-    except ImportError:
+    except ImportError as e:
+        # Log import error for debugging
+        import logging
+
+        import_logger = logging.getLogger(__name__)
+        import_logger.error(f"Import failed in web_search: {e}")
         # Fallback to legacy search
-        return await _fallback_search(query, max_results or 5)
+        return await _fallback_search(
+            query, max_results or 5, error=f"Import error: {e}"
+        )
 
     try:
         # Get configuration
@@ -99,10 +112,33 @@ async def web_search(
         timeframe = timeframe or config.search.default_timeframe
         technical_level = technical_level or config.search.default_technical_level
 
-        # Validate parameters
+        # Convert and validate parameters (handle string inputs from chat interface)
         if provider not in ["duckduckgo", "google", "bing"]:
             provider = "duckduckgo"
+
+        # Convert max_results to int if it's a string
+        if isinstance(max_results, str):
+            try:
+                max_results = int(max_results)
+            except ValueError:
+                logger.warning(
+                    f"Invalid max_results value '{max_results}', using default"
+                )
+                max_results = config.search.max_results
+
         max_results = max(1, min(20, max_results))
+
+        # Ensure string parameters are properly handled
+        enhancement = str(enhancement) if enhancement is not None else enhancement
+        timeframe = str(timeframe) if timeframe is not None else timeframe
+        technical_level = (
+            str(technical_level) if technical_level is not None else technical_level
+        )
+        conversation_context = (
+            str(conversation_context)
+            if conversation_context is not None
+            else conversation_context
+        )
 
         # Convert enhancement string to enum
         try:
@@ -115,15 +151,9 @@ async def web_search(
             technical_level=technical_level, timeframe=timeframe, locale="en-US"
         )
 
-        # Get AI client for query enhancement
+        # Disable AI client for performance - query enhancement causes timeouts
+        # TODO: Re-enable once query enhancement performance is improved
         ai_client = None
-        try:
-            from nova.core.ai_client import create_ai_client
-
-            active_config = config.get_active_ai_config()
-            ai_client = create_ai_client(active_config)
-        except Exception:
-            pass
 
         # Use provided conversation context or empty string
         context = conversation_context or ""
@@ -132,15 +162,39 @@ async def web_search(
         search_config = {"search": config.search.model_dump()}
         search_manager = EnhancedSearchManager(search_config, ai_client)
 
-        search_response = await search_manager.enhanced_search(
-            query=query,
-            provider=provider,
-            max_results=max_results,
-            extract_content=include_content,
-            enhancement_mode=enhancement_mode,
-            conversation_context=context,
-            memory_constraints=memory_constraints,
-        )
+        # Execute search with timeout protection
+        import asyncio
+
+        try:
+            logger.info(f"Starting enhanced search for query: {query}")
+            search_response = await asyncio.wait_for(
+                search_manager.enhanced_search(
+                    query=query,
+                    provider=provider,
+                    max_results=max_results,
+                    extract_content=True,
+                    enhancement_mode=enhancement_mode,
+                    conversation_context=context,
+                    memory_constraints=memory_constraints,
+                ),
+                timeout=20.0,  # Leave 10 seconds buffer before tool timeout
+            )
+            logger.info("Enhanced search completed successfully")
+        except TimeoutError:
+            logger.error(
+                f"Search operation timed out after 20 seconds for query: {query}"
+            )
+            return {
+                "query": query,
+                "provider": provider,
+                "results": [],
+                "total_results": 0,
+                "search_time_ms": 20000,
+                "enhancement_mode": (
+                    enhancement_mode.value if enhancement_mode else "disabled"
+                ),
+                "error": "Search operation timed out after 20 seconds - try with simpler query",
+            }
 
         # Close the search manager after use
         await search_manager.close()
@@ -167,7 +221,13 @@ async def web_search(
                 ),
             }
 
-            # Add enhanced content if available
+            # Add extracted content if available
+            if hasattr(result, "full_content") and result.full_content:
+                result_dict["content"] = result.full_content
+            elif isinstance(result, dict) and result.get("full_content"):
+                result_dict["content"] = result["full_content"]
+
+            # Add content summary if available
             if hasattr(result, "content_summary") and result.content_summary:
                 result_dict["content_summary"] = result.content_summary
             elif isinstance(result, dict) and result.get("content_summary"):
@@ -215,25 +275,35 @@ async def web_search(
         return response
 
     except Exception as e:
+        # Log the full exception for debugging
+        import traceback
+
+        logger.error(f"Web search failed: {e}")
+        logger.error(f"Full traceback: {traceback.format_exc()}")
         # Fallback to basic search
         return await _fallback_search(query, max_results or 5, error=str(e))
 
 
 async def _fallback_search(query: str, max_results: int, error: str = None) -> dict:
     """Fallback search implementation when SearchManager is not available"""
+    error_msg = error if error else "Unknown error occurred"
+    logger.error(f"Fallback search called for query '{query}' due to: {error_msg}")
+
     return {
         "query": query,
         "provider": "fallback",
         "results": [
             {
-                "title": "Search functionality temporarily unavailable",
+                "title": "Web Search Error",
                 "url": "",
-                "snippet": f"Web search is not available. {error if error else 'Please check your configuration.'}",
+                "snippet": f"Web search failed: {error_msg}. Please try again or check your network connection.",
                 "source": "nova",
+                "content": f"Search error details: {error_msg}",
+                "extraction_success": False,
             }
         ],
         "total_results": 1,
-        "error": error,
+        "error": error_msg,
     }
 
 

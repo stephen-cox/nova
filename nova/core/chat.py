@@ -1417,7 +1417,14 @@ Content: {content}
             )
             return
 
-        parts = args.split()
+        import shlex
+
+        try:
+            parts = shlex.split(args)
+        except ValueError as e:
+            print_error(f"Invalid quoting in command: {e}")
+            return
+
         if not parts:
             print_error("Please provide a tool name")
             return
@@ -1451,7 +1458,29 @@ Content: {content}
 
                 # Execute the tool
                 print_info(f"Executing tool: {tool_name}")
-                asyncio.run(self._execute_tool_direct(tool_name, arguments, session))
+
+                # Handle async execution safely
+                try:
+                    # Check if we're already in an event loop
+                    asyncio.get_running_loop()
+                    # We're in an async context, need to handle this carefully
+                    import concurrent.futures
+
+                    def run_tool():
+                        asyncio.run(
+                            self._execute_tool_direct(tool_name, arguments, session)
+                        )
+
+                    # Run in a separate thread to avoid event loop conflicts
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(run_tool)
+                        future.result()  # Wait for completion
+
+                except RuntimeError:
+                    # No running loop, safe to use asyncio.run directly
+                    asyncio.run(
+                        self._execute_tool_direct(tool_name, arguments, session)
+                    )
 
             except Exception as e:
                 print_error(f"Failed to parse arguments: {e}")
@@ -1514,7 +1543,6 @@ Content: {content}
     ) -> dict | None:
         """Parse command line arguments for a tool"""
         import json
-        import shlex
 
         properties = tool_info.parameters.get("properties", {})
         required = tool_info.parameters.get("required", [])
@@ -1523,23 +1551,8 @@ Content: {content}
         arguments = {}
 
         try:
-            # Use a hybrid approach: handle JSON objects specially, use shlex for others
-            parsed_args = []
-
-            # First, try to identify JSON objects and preserve them
+            # Arguments are already properly parsed by shlex.split() in the caller
             for arg in args:
-                if "=" in arg and "{" in arg and "}" in arg:
-                    # Likely contains JSON object, don't use shlex
-                    parsed_args.append(arg)
-                else:
-                    # Use shlex for proper quote handling of non-JSON strings
-                    try:
-                        parsed_args.extend(shlex.split(arg))
-                    except ValueError:
-                        # Fallback if shlex fails
-                        parsed_args.append(arg)
-
-            for arg in parsed_args:
                 if "=" in arg:
                     key, value = arg.split("=", 1)
                     key = key.strip()

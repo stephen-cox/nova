@@ -143,6 +143,14 @@ class EnhancedSearchManager:
             extraction_config = self._build_extraction_config()
             self.query_enhancer = QueryEnhancer(ai_client, extraction_config)
 
+    async def __aenter__(self):
+        """Async context manager entry"""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit with cleanup"""
+        await self.close()
+
     def _initialize_providers(self):
         """Initialize available search providers based on configuration"""
         search_config = self.config.get("search", {})
@@ -202,15 +210,25 @@ class EnhancedSearchManager:
         enhancement_plan = None
         if enhancement_mode != SearchEnhancementMode.DISABLED and self.query_enhancer:
             try:
-                enhancement_plan = await self.query_enhancer.enhance_query(
-                    user_query=query,
-                    conversation_context=conversation_context,
-                    memory_constraints=memory_constraints,
-                    enhancement_mode=enhancement_mode,
-                    max_queries=3,
+                # Add timeout for query enhancement to prevent performance issues
+                search_config = self.config.get("search", {})
+                enhancement_timeout = search_config.get("enhancement_timeout", 30.0)
+                enhancement_plan = await asyncio.wait_for(
+                    self.query_enhancer.enhance_query(
+                        user_query=query,
+                        conversation_context=conversation_context,
+                        memory_constraints=memory_constraints,
+                        enhancement_mode=enhancement_mode,
+                        max_queries=3,
+                    ),
+                    timeout=enhancement_timeout,
                 )
                 logger.info(
                     f"Enhanced query in {enhancement_plan.processing_time_ms}ms"
+                )
+            except TimeoutError:
+                logger.warning(
+                    f"Query enhancement timed out after {enhancement_timeout} seconds, using original query"
                 )
             except Exception as e:
                 logger.warning(f"Query enhancement failed: {e}")
@@ -465,8 +483,12 @@ class EnhancedSearchManager:
 
     async def close(self):
         """Close all search clients"""
-        for provider in self.providers.values():
-            await provider.close()
+        for provider_name, provider in self.providers.items():
+            try:
+                await provider.close()
+                logger.debug(f"Closed search provider: {provider_name}")
+            except Exception as e:
+                logger.warning(f"Error closing search provider {provider_name}: {e}")
 
     # Backward compatibility methods
     async def search(self, *args, **kwargs) -> SearchResponse:

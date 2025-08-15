@@ -127,7 +127,7 @@ class OpenAIClient(BaseAIClient):
             import openai
 
             self.client = openai.AsyncOpenAI(
-                api_key=config.api_key, base_url=config.base_url
+                api_key=config.api_key, base_url=config.base_url, timeout=config.timeout
             )
         except ImportError:
             raise AIError("OpenAI library not installed. Install with: uv add openai")
@@ -310,7 +310,7 @@ class AnthropicClient(BaseAIClient):
             import anthropic
 
             self.client = anthropic.AsyncAnthropic(
-                api_key=config.api_key, base_url=config.base_url
+                api_key=config.api_key, base_url=config.base_url, timeout=config.timeout
             )
         except ImportError:
             raise AIError(
@@ -425,14 +425,17 @@ class OllamaClient(BaseAIClient):
     async def generate_response(self, messages: list[dict[str, str]], **kwargs) -> str:
         """Generate response using Ollama API"""
         try:
-            response = await self.client.chat(
-                model=self.config.model_name,
-                messages=messages,
-                options={
-                    "temperature": self.config.temperature,
-                    "num_predict": self.config.max_tokens,
-                },
-                **kwargs,
+            response = await asyncio.wait_for(
+                self.client.chat(
+                    model=self.config.model_name,
+                    messages=messages,
+                    options={
+                        "temperature": self.config.temperature,
+                        "num_predict": self.config.max_tokens,
+                    },
+                    **kwargs,
+                ),
+                timeout=self.config.timeout,
             )
             return response["message"]["content"]
 
@@ -444,15 +447,18 @@ class OllamaClient(BaseAIClient):
     ) -> AsyncGenerator[str, None]:
         """Generate streaming response using Ollama API"""
         try:
-            stream = await self.client.chat(
-                model=self.config.model_name,
-                messages=messages,
-                options={
-                    "temperature": self.config.temperature,
-                    "num_predict": self.config.max_tokens,
-                },
-                stream=True,
-                **kwargs,
+            stream = await asyncio.wait_for(
+                self.client.chat(
+                    model=self.config.model_name,
+                    messages=messages,
+                    options={
+                        "temperature": self.config.temperature,
+                        "num_predict": self.config.max_tokens,
+                    },
+                    stream=True,
+                    **kwargs,
+                ),
+                timeout=self.config.timeout,
             )
 
             async for chunk in stream:

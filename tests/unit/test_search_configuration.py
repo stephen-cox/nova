@@ -24,8 +24,6 @@ class TestSearchConfigurationValidation:
         assert config.context_messages_count == 5
         assert config.default_technical_level == "intermediate"
         assert config.default_timeframe == "any"
-        assert config.enhancement_cache_enabled is True
-        assert config.enhancement_cache_duration_minutes == 15
         assert config.performance_mode is True
         assert config.extraction_backend == "yake_only"
         assert config.enable_keybert is False
@@ -166,18 +164,6 @@ class TestSearchConfigurationValidation:
             with pytest.raises(ValidationError):
                 SearchConfig(context_messages_count=count)
 
-    def test_cache_duration_validation(self):
-        """Test validation of cache duration"""
-        # Valid values
-        for duration in [1, 15, 60, 1440]:  # 1 min to 24 hours
-            config = SearchConfig(enhancement_cache_duration_minutes=duration)
-            assert config.enhancement_cache_duration_minutes == duration
-
-        # Invalid values
-        for duration in [0, -1, 1441, 2000]:  # Outside valid range
-            with pytest.raises(ValidationError):
-                SearchConfig(enhancement_cache_duration_minutes=duration)
-
 
 class TestSearchConfigurationIntegration:
     """Test search configuration integration with main Nova config"""
@@ -234,8 +220,6 @@ class TestSearchConfigurationIntegration:
             {"search": {"yake_max_keywords": -1}},
             {"search": {"keybert_max_keywords": 50}},
             {"search": {"context_messages_count": -1}},
-            {"search": {"enhancement_cache_duration_minutes": 0}},
-            {"search": {"enhancement_cache_duration_minutes": 2000}},
         ]
 
         for invalid_config in invalid_configs:
@@ -328,7 +312,6 @@ class TestConfigurationEdgeCases:
         config_data = {
             "enabled": "true",  # String that should be coerced to bool
             "max_results": "10",  # String that should be coerced to int
-            "enhancement_cache_enabled": "false",  # String to bool
         }
 
         config = SearchConfig(**config_data)
@@ -336,7 +319,6 @@ class TestConfigurationEdgeCases:
         # Should coerce types correctly
         assert config.enabled is True
         assert config.max_results == 10
-        assert config.enhancement_cache_enabled is False
 
     def test_google_and_bing_config_structure(self):
         """Test Google and Bing configuration structure"""

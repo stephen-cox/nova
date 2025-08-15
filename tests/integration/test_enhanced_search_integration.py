@@ -31,7 +31,6 @@ class TestEnhancedSearchIntegration:
                 "default_technical_level": "intermediate",
                 "default_timeframe": "any",
                 "performance_mode": True,
-                "enhancement_cache_enabled": True,
                 "extraction_backend": "yake_only",
                 "yake_max_keywords": 10,
                 "keybert_max_keywords": 6,
@@ -423,16 +422,30 @@ class TestWebSearchToolIntegration:
             mock_config_obj.search.max_results = 5
             mock_config_obj.search.default_timeframe = "any"
             mock_config_obj.search.default_technical_level = "intermediate"
-            mock_config_obj.get_active_ai_config.return_value = {}
+            mock_config_obj.search.use_ai_answers = True
+            mock_config_obj.search.enhancement_timeout = 30.0
+            mock_config_obj.search.model_dump.return_value = {
+                "default_enhancement": "fast",
+                "default_provider": "duckduckgo",
+                "max_results": 5,
+            }
+            # Fix: Provide proper AI config with provider attribute
+            mock_config_obj.get_active_ai_config.return_value = MagicMock(
+                provider="openai"
+            )
             mock_config.return_value = mock_config_obj
 
             with patch(
                 "nova.search.manager.EnhancedSearchManager"
             ) as mock_manager_class:
-                # Mock search manager
+                # Mock search manager with async context manager support
                 mock_manager = AsyncMock()
-                mock_manager.enhanced_search.return_value = {
-                    "query": "test query",
+                mock_manager.__aenter__ = AsyncMock(return_value=mock_manager)
+                mock_manager.__aexit__ = AsyncMock(return_value=None)
+
+                # Fix: Properly mock the return value
+                search_response = {
+                    "query": "Python async programming",
                     "provider": "duckduckgo",
                     "results": [
                         {
@@ -458,30 +471,35 @@ class TestWebSearchToolIntegration:
                         ],
                     },
                 }
-                mock_manager.close = AsyncMock()
+                mock_manager.enhanced_search.return_value = search_response
                 mock_manager_class.return_value = mock_manager
 
-                # Test the tool
-                result = await web_search(
-                    query="Python async programming",
-                    enhancement="fast",
-                    max_results=3,
-                )
+                # Mock AI client creation
+                with patch("nova.core.ai_client.create_ai_client") as mock_create_ai:
+                    mock_create_ai.return_value = MagicMock()
 
-                # Verify tool output structure
-                assert "query" in result
-                assert "provider" in result
-                assert "results" in result
-                assert "enhancement" in result
+                    # Test the tool
+                    result = await web_search(
+                        query="Python async programming",
+                        enhancement="fast",
+                        max_results=3,
+                    )
 
-                # Verify enhancement details
-                assert result["enhancement"]["mode"] == SearchEnhancementMode.FAST
-                assert result["enhancement"]["processing_time_ms"] == 50
-                assert len(result["enhancement"]["enhanced_queries"]) == 1
+                    # Verify tool output structure
+                    assert "query" in result
+                    assert "provider" in result
+                    assert "results" in result
+                    assert "enhancement" in result
 
-                # Verify manager was called correctly
-                mock_manager.enhanced_search.assert_called_once()
-                mock_manager.close.assert_called_once()
+                    # Verify enhancement details
+                    assert result["enhancement"]["mode"] == SearchEnhancementMode.FAST
+                    assert result["enhancement"]["processing_time_ms"] == 50
+                    assert len(result["enhancement"]["enhanced_queries"]) == 1
+
+                    # Verify manager was used as async context manager
+                    mock_manager.__aenter__.assert_called_once()
+                    mock_manager.__aexit__.assert_called_once()
+                    mock_manager.enhanced_search.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_web_search_tool_fallback(self):
@@ -512,21 +530,35 @@ class TestWebSearchToolIntegration:
             mock_config_obj.search.max_results = 10
             mock_config_obj.search.default_timeframe = "any"
             mock_config_obj.search.default_technical_level = "intermediate"
-            mock_config_obj.get_active_ai_config.return_value = {}
+            mock_config_obj.search.use_ai_answers = (
+                False  # Disable to avoid AI client issues
+            )
+            mock_config_obj.search.enhancement_timeout = 30.0
+            mock_config_obj.search.model_dump.return_value = {
+                "default_enhancement": "fast",
+                "default_provider": "duckduckgo",
+                "max_results": 10,
+            }
+            mock_config_obj.get_active_ai_config.return_value = MagicMock(
+                provider="openai"
+            )
             mock_config.return_value = mock_config_obj
 
             with patch(
                 "nova.search.manager.EnhancedSearchManager"
             ) as mock_manager_class:
                 mock_manager = AsyncMock()
-                mock_manager.enhanced_search.return_value = {
-                    "query": "test",
+                mock_manager.__aenter__ = AsyncMock(return_value=mock_manager)
+                mock_manager.__aexit__ = AsyncMock(return_value=None)
+
+                search_response = {
+                    "query": "validation test",
                     "provider": "duckduckgo",
                     "results": [],
                     "total_results": 0,
                     "search_time_ms": 10,
                 }
-                mock_manager.close = AsyncMock()
+                mock_manager.enhanced_search.return_value = search_response
                 mock_manager_class.return_value = mock_manager
 
                 # Test parameter validation and defaults

@@ -119,7 +119,8 @@ search:
 
   # Performance settings
   performance_mode: true               # Prioritize speed over accuracy
-  enhancement_cache_enabled: true     # Cache enhanced queries
+  enhancement_timeout: 30.0            # Query enhancement timeout (seconds)
+  request_timeout: 10.0                # HTTP request timeout (seconds)
 
   # Advanced: Enable semantic analysis (optional)
   enable_keybert: false               # Set to true for KeyBERT
@@ -132,6 +133,13 @@ search:
 - Use **semantic** for complex technical topics or research (requires: `uv add keybert sentence-transformers`)
 - Use **disabled** for exact phrase searches or when speed is critical
 - The system automatically uses conversation context to improve search relevance
+
+### Timeout Configuration
+
+- **enhancement_timeout**: Controls how long the AI-powered query enhancement phase can take before falling back to the original query (default: 30 seconds)
+- **request_timeout**: Sets the HTTP timeout for individual search engine requests (default: 10 seconds)
+- If query enhancement times out, the search will continue with the original query and display a warning
+- Increase `enhancement_timeout` if you have slow AI responses but want more thorough enhancement
 
 ## Testing Commands
 

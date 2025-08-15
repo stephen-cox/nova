@@ -25,6 +25,9 @@ class AIModelConfig(BaseModel):
     temperature: float = Field(
         default=0.7, description="Response temperature", ge=0.0, le=1.0
     )
+    timeout: float = Field(
+        default=60.0, description="API request timeout in seconds", gt=0.0, le=300.0
+    )
 
     @field_validator("provider")
     @classmethod
@@ -180,16 +183,7 @@ class SearchConfig(BaseModel):
         default="any", description="Default timeframe preference for search results"
     )
 
-    # Performance and caching
-    enhancement_cache_enabled: bool = Field(
-        default=True, description="Cache enhanced queries to improve performance"
-    )
-    enhancement_cache_duration_minutes: int = Field(
-        default=15,
-        description="How long to cache enhanced queries",
-        gt=0,
-        le=1440,  # Max 24 hours
-    )
+    # Performance settings
     performance_mode: bool = Field(
         default=True,
         description="Prioritize speed over semantic accuracy in enhancements",

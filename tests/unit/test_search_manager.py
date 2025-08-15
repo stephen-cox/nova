@@ -494,6 +494,22 @@ class TestEnhancedSearchManager:
         mock_client1.close.assert_called_once()
         mock_client2.close.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_async_context_manager(self):
+        """Test manager as async context manager"""
+        config = {"search": {"enabled": True}}
+
+        # Mock providers
+        async with EnhancedSearchManager(config) as manager:
+            mock_client = AsyncMock()
+            manager.providers["test_provider"] = mock_client
+            # Test that manager is properly initialized
+            assert manager is not None
+            assert isinstance(manager, EnhancedSearchManager)
+
+        # The mock client should be closed when exiting context
+        mock_client.close.assert_called_once()
+
     def test_get_available_providers(self):
         """Test getting available providers"""
         config = {"search": {"enabled": True}}

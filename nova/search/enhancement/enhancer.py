@@ -1,5 +1,6 @@
 """Main query enhancement pipeline using three-stage approach"""
 
+import asyncio
 import json
 import logging
 import time
@@ -159,7 +160,11 @@ class QueryEnhancer:
                 {"role": "user", "content": prompt},
             ]
 
-            response = await self.ai_client.generate_response(messages)
+            # Add timeout to AI client call to prevent hanging
+            response = await asyncio.wait_for(
+                self.ai_client.generate_response(messages),
+                timeout=20.0,  # Individual AI client timeout
+            )
 
             # Parse JSON response
             search_queries = self._parse_llm_response(response, user_query, max_queries)

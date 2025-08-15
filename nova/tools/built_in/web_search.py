@@ -151,53 +151,110 @@ async def web_search(
             technical_level=technical_level, timeframe=timeframe, locale="en-US"
         )
 
-        # Disable AI client for performance - query enhancement causes timeouts
-        # TODO: Re-enable once query enhancement performance is improved
+        # Enable AI client only if meaningful enhancement is needed
         ai_client = None
+        should_create_ai_client = (
+            config.search.use_ai_answers  # AI answers enabled in config
+            and enhancement_mode
+            != SearchEnhancementMode.DISABLED  # Enhancement not disabled
+            and (
+                not conversation_context or len(conversation_context.strip()) >= 50
+            )  # Meaningful context or no context
+        )
+
+        if should_create_ai_client:
+            # Import AI client when needed to avoid circular dependencies
+            try:
+                from nova.core.ai_client import create_ai_client
+
+                active_config = config.get_active_ai_config()
+                ai_client = create_ai_client(active_config)
+            except Exception as e:
+                logger.warning(
+                    f"Could not initialize AI client for search enhancement: {e}"
+                )
+                ai_client = None
+
+        # Log if conversation context is being used
+        if conversation_context and len(conversation_context.strip()) > 50:
+            logger.info(
+                "Using conversation context for keyword-based search enhancement"
+            )
 
         # Use provided conversation context or empty string
         context = conversation_context or ""
 
-        # Use EnhancedSearchManager for search
+        # Use EnhancedSearchManager for search with proper cleanup
         search_config = {"search": config.search.model_dump()}
-        search_manager = EnhancedSearchManager(search_config, ai_client)
 
-        # Execute search with timeout protection
+        # Execute search with timeout protection using async context manager
         import asyncio
 
+        # Use the configured timeout from search config, with a reasonable default
         try:
-            logger.info(f"Starting enhanced search for query: {query}")
-            search_response = await asyncio.wait_for(
-                search_manager.enhanced_search(
-                    query=query,
-                    provider=provider,
-                    max_results=max_results,
-                    extract_content=True,
-                    enhancement_mode=enhancement_mode,
-                    conversation_context=context,
-                    memory_constraints=memory_constraints,
-                ),
-                timeout=20.0,  # Leave 10 seconds buffer before tool timeout
-            )
-            logger.info("Enhanced search completed successfully")
-        except TimeoutError:
-            logger.error(
-                f"Search operation timed out after 20 seconds for query: {query}"
-            )
-            return {
-                "query": query,
-                "provider": provider,
-                "results": [],
-                "total_results": 0,
-                "search_time_ms": 20000,
-                "enhancement_mode": (
-                    enhancement_mode.value if enhancement_mode else "disabled"
-                ),
-                "error": "Search operation timed out after 20 seconds - try with simpler query",
-            }
+            enhancement_timeout = getattr(config.search, "enhancement_timeout", 30.0)
+        except AttributeError:
+            enhancement_timeout = 30.0
+        search_timeout = (
+            enhancement_timeout + 15.0
+        )  # Allow enhancement time plus buffer for actual search
 
-        # Close the search manager after use
-        await search_manager.close()
+        async with EnhancedSearchManager(search_config, ai_client) as search_manager:
+            try:
+                logger.info(
+                    f"Starting enhanced search for query: {query} (timeout: {search_timeout}s)"
+                )
+                search_response = await asyncio.wait_for(
+                    search_manager.enhanced_search(
+                        query=query,
+                        provider=provider,
+                        max_results=max_results,
+                        extract_content=True,
+                        enhancement_mode=enhancement_mode,
+                        conversation_context=context,
+                        memory_constraints=memory_constraints,
+                    ),
+                    timeout=search_timeout,
+                )
+                logger.info("Enhanced search completed successfully")
+            except TimeoutError:
+                logger.warning(
+                    f"Search operation timed out after {search_timeout} seconds for query: {query}"
+                )
+                # Try a fallback search with simpler settings
+                try:
+                    logger.info(
+                        "Attempting fallback search with disabled enhancement..."
+                    )
+                    async with EnhancedSearchManager(
+                        search_config, ai_client=None
+                    ) as fallback_manager:
+                        search_response = await asyncio.wait_for(
+                            fallback_manager.enhanced_search(
+                                query=query,
+                                provider=provider,
+                                max_results=3,  # Reduced results for faster search
+                                extract_content=False,  # No content extraction to speed up
+                                enhancement_mode=SearchEnhancementMode.DISABLED,  # No enhancement
+                                conversation_context="",  # No context
+                                memory_constraints=memory_constraints,
+                            ),
+                            timeout=10.0,  # Shorter timeout for fallback
+                        )
+                        logger.info("Fallback search completed successfully")
+                except Exception as fallback_error:
+                    logger.warning(f"Fallback search also failed: {fallback_error}")
+                    return {
+                        "query": query,
+                        "provider": provider,
+                        "results": [],
+                        "total_results": 0,
+                        "search_time_ms": int(search_timeout * 1000),
+                        "enhancement_mode": (
+                            enhancement_mode.value if enhancement_mode else "disabled"
+                        ),
+                        "error": "Search timed out - try with simpler query or disable enhancement",
+                    }
 
         # Format results for tool output
         results = []

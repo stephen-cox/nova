@@ -38,16 +38,18 @@ class TestWebSearch:
         """Test web search provider validation"""
         with patch("nova.search.manager.EnhancedSearchManager") as mock_manager_class:
             mock_manager = AsyncMock()
-            mock_manager.enhanced_search = AsyncMock(
-                return_value={
-                    "query": "test query",
-                    "provider": "duckduckgo",
-                    "results": [],
-                    "total_results": 0,
-                    "search_time_ms": 10,
-                }
-            )
-            mock_manager.close = AsyncMock()
+            # Setup async context manager
+            mock_manager.__aenter__ = AsyncMock(return_value=mock_manager)
+            mock_manager.__aexit__ = AsyncMock(return_value=None)
+
+            search_response = {
+                "query": "test query",
+                "provider": "duckduckgo",
+                "results": [],
+                "total_results": 0,
+                "search_time_ms": 10,
+            }
+            mock_manager.enhanced_search = AsyncMock(return_value=search_response)
             mock_manager_class.return_value = mock_manager
 
             with patch("nova.core.config.config_manager") as mock_config:
@@ -57,7 +59,11 @@ class TestWebSearch:
                 mock_config_obj.search.max_results = 5
                 mock_config_obj.search.default_timeframe = "any"
                 mock_config_obj.search.default_technical_level = "intermediate"
-                mock_config_obj.get_active_ai_config.return_value = {}
+                mock_config_obj.search.use_ai_answers = False  # Disable AI
+                mock_config_obj.search.enhancement_timeout = 30.0
+                mock_config_obj.get_active_ai_config.return_value = MagicMock(
+                    provider="openai"
+                )
                 mock_config_obj.search.model_dump.return_value = {}
                 mock_config.load_config.return_value = mock_config_obj
 
@@ -74,16 +80,18 @@ class TestWebSearch:
         """Test web search results limit validation"""
         with patch("nova.search.manager.EnhancedSearchManager") as mock_manager_class:
             mock_manager = AsyncMock()
-            mock_manager.enhanced_search = AsyncMock(
-                return_value={
-                    "query": "test query",
-                    "provider": "duckduckgo",
-                    "results": [],
-                    "total_results": 0,
-                    "search_time_ms": 10,
-                }
-            )
-            mock_manager.close = AsyncMock()
+            # Setup async context manager
+            mock_manager.__aenter__ = AsyncMock(return_value=mock_manager)
+            mock_manager.__aexit__ = AsyncMock(return_value=None)
+
+            search_response = {
+                "query": "test query",
+                "provider": "duckduckgo",
+                "results": [],
+                "total_results": 0,
+                "search_time_ms": 10,
+            }
+            mock_manager.enhanced_search = AsyncMock(return_value=search_response)
             mock_manager_class.return_value = mock_manager
 
             with patch("nova.core.config.config_manager") as mock_config:
@@ -93,7 +101,11 @@ class TestWebSearch:
                 mock_config_obj.search.max_results = 5
                 mock_config_obj.search.default_timeframe = "any"
                 mock_config_obj.search.default_technical_level = "intermediate"
-                mock_config_obj.get_active_ai_config.return_value = {}
+                mock_config_obj.search.use_ai_answers = False  # Disable AI
+                mock_config_obj.search.enhancement_timeout = 30.0
+                mock_config_obj.get_active_ai_config.return_value = MagicMock(
+                    provider="openai"
+                )
                 mock_config_obj.search.model_dump.return_value = {}
                 mock_config.load_config.return_value = mock_config_obj
 
@@ -110,23 +122,25 @@ class TestWebSearch:
         """Test web search basic functionality"""
         with patch("nova.search.manager.EnhancedSearchManager") as mock_manager_class:
             mock_manager = AsyncMock()
-            mock_manager.enhanced_search = AsyncMock(
-                return_value={
-                    "query": "test query",
-                    "provider": "duckduckgo",
-                    "results": [
-                        {
-                            "title": "Test Result",
-                            "url": "https://example.com",
-                            "snippet": "Test snippet",
-                            "source": "example.com",
-                        }
-                    ],
-                    "total_results": 1,
-                    "search_time_ms": 100,
-                }
-            )
-            mock_manager.close = AsyncMock()
+            # Setup async context manager
+            mock_manager.__aenter__ = AsyncMock(return_value=mock_manager)
+            mock_manager.__aexit__ = AsyncMock(return_value=None)
+
+            search_response = {
+                "query": "test query",
+                "provider": "duckduckgo",
+                "results": [
+                    {
+                        "title": "Test Result",
+                        "url": "https://example.com",
+                        "snippet": "Test snippet",
+                        "source": "example.com",
+                    }
+                ],
+                "total_results": 1,
+                "search_time_ms": 100,
+            }
+            mock_manager.enhanced_search = AsyncMock(return_value=search_response)
             mock_manager_class.return_value = mock_manager
 
             with patch("nova.core.config.config_manager") as mock_config:
@@ -136,7 +150,11 @@ class TestWebSearch:
                 mock_config_obj.search.max_results = 5
                 mock_config_obj.search.default_timeframe = "any"
                 mock_config_obj.search.default_technical_level = "intermediate"
-                mock_config_obj.get_active_ai_config.return_value = {}
+                mock_config_obj.search.use_ai_answers = False  # Disable AI
+                mock_config_obj.search.enhancement_timeout = 30.0
+                mock_config_obj.get_active_ai_config.return_value = MagicMock(
+                    provider="openai"
+                )
                 mock_config_obj.search.model_dump.return_value = {}
                 mock_config.load_config.return_value = mock_config_obj
 

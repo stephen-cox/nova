@@ -22,8 +22,24 @@ class BaseSearchClient(ABC):
         self.config = config
         self.client = httpx.AsyncClient(
             timeout=config.get("timeout", 10.0),
-            headers={"User-Agent": "Nova AI Assistant/1.0"},
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "DNT": "1",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+            },
         )
+
+    async def __aenter__(self):
+        """Async context manager entry"""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit with cleanup"""
+        await self.close()
 
     @abstractmethod
     async def search(
@@ -39,7 +55,13 @@ class BaseSearchClient(ABC):
 
     async def close(self):
         """Close the HTTP client"""
-        await self.client.aclose()
+        try:
+            await self.client.aclose()
+            logger.debug(f"Closed HTTP client for {self.__class__.__name__}")
+        except Exception as e:
+            logger.warning(
+                f"Error closing HTTP client for {self.__class__.__name__}: {e}"
+            )
 
     async def extract_content(self, url: str) -> tuple[str | None, bool]:
         """Extract full content from a webpage URL

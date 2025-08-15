@@ -17,8 +17,6 @@ from nova.core.tools import FunctionRegistry
 from nova.models.config import NovaConfig
 from nova.models.message import Conversation, MessageRole
 from nova.models.tools import ExecutionContext
-from nova.search.manager import EnhancedSearchManager
-from nova.search.models import SearchEnhancementMode, SearchMemoryConstraints
 from nova.utils.formatting import (
     print_error,
     print_info,
@@ -422,7 +420,7 @@ class ChatManager:
             print_info("Type '/help' for available commands")
 
     def _handle_search_command(self, search_args: str, session: ChatSession) -> None:
-        """Handle enhanced web search command with intelligent query optimization"""
+        """Handle enhanced web search command using the web_search tool"""
         if not search_args:
             print_error("Please provide a search query")
             print_info(
@@ -458,9 +456,11 @@ class ChatManager:
             # Get conversation context for enhancement
             conversation_context = self._get_search_context(session)
 
-            # Execute enhanced search
+            # Use the web_search tool instead of duplicate implementation
+            from nova.tools.built_in.web_search import web_search
+
             search_response = asyncio.run(
-                self._execute_enhanced_search(
+                web_search(
                     query=query,
                     provider=provider,
                     max_results=max_results,
@@ -468,7 +468,6 @@ class ChatManager:
                     technical_level=technical_level,
                     timeframe=timeframe,
                     conversation_context=conversation_context,
-                    session=session,
                 )
             )
 
@@ -627,83 +626,6 @@ class ChatManager:
 
         return context_text
 
-    async def _execute_enhanced_search(
-        self,
-        query: str,
-        provider: str,
-        max_results: int,
-        enhancement: str,
-        technical_level: str,
-        timeframe: str,
-        conversation_context: str,
-        session: ChatSession,
-    ) -> dict:
-        """Execute enhanced search using the new search manager"""
-
-        # Convert config to the format expected by EnhancedSearchManager
-        search_config = {
-            "search": {
-                "enabled": True,
-                "default_provider": provider,
-                "max_results": max_results,
-                "google": dict(self.config.search.google),
-                "bing": dict(self.config.search.bing),
-            }
-        }
-
-        # Get AI client if needed
-        ai_client = None
-        try:
-            from nova.core.ai_client import create_ai_client
-
-            active_config = self.config.get_active_ai_config()
-            ai_client = create_ai_client(active_config)
-        except Exception as e:
-            print_warning(f"AI client unavailable for enhancement: {e}")
-
-        # Create search manager
-        manager = EnhancedSearchManager(search_config, ai_client=ai_client)
-
-        try:
-            # Map string enhancement mode to enum
-            enhancement_mode = SearchEnhancementMode.FAST  # Default
-            if enhancement == "auto":
-                enhancement_mode = SearchEnhancementMode.AUTO
-            elif enhancement == "disabled":
-                enhancement_mode = SearchEnhancementMode.DISABLED
-            elif enhancement == "fast":
-                enhancement_mode = SearchEnhancementMode.FAST
-            elif enhancement == "semantic":
-                enhancement_mode = SearchEnhancementMode.SEMANTIC
-            elif enhancement == "hybrid":
-                enhancement_mode = SearchEnhancementMode.HYBRID
-            elif enhancement == "adaptive":
-                enhancement_mode = SearchEnhancementMode.ADAPTIVE
-
-            # Create memory constraints
-            constraints = SearchMemoryConstraints(
-                technical_level=technical_level,
-                timeframe=timeframe,
-                locale="en-US",  # TODO: Make this configurable
-            )
-
-            # Execute enhanced search
-            result = await manager.enhanced_search(
-                query=query,
-                provider=provider,
-                max_results=max_results,
-                extract_content=True,
-                enhancement_mode=enhancement_mode,
-                conversation_context=conversation_context,
-                memory_constraints=constraints,
-            )
-
-            return result
-
-        finally:
-            # Clean up manager resources
-            await manager.close()
-
     def _display_enhancement_info(self, enhancement_details: dict) -> None:
         """Display enhancement information to the user"""
         if not enhancement_details:
@@ -737,16 +659,25 @@ class ChatManager:
         search_context += "Search results:\n"
 
         for i, result in enumerate(results[:5], 1):  # Limit to top 5 results
-            title = getattr(result, "title", "No title")
-            snippet = getattr(result, "snippet", "No description")
-            url = getattr(result, "url", "No URL")
-            content_summary = getattr(result, "content_summary", None)
+            title = result.get("title", "No title")
+            snippet = result.get("snippet", "No description")
+            url = result.get("url", "No URL")
+            content_summary = result.get("content_summary", None)
+            full_content = result.get("content", None)
 
             search_context += f"{i}. {title}\n"
             search_context += f"   URL: {url}\n"
 
-            # Use content summary if available, otherwise use snippet
-            if content_summary:
+            # Use full content if available, then content summary, then snippet
+            if full_content and len(full_content.strip()) > len(snippet.strip()):
+                # Truncate very long content to avoid token limits
+                content_text = (
+                    full_content[:2000] + "..."
+                    if len(full_content) > 2000
+                    else full_content
+                )
+                search_context += f"   Content: {content_text}\n"
+            elif content_summary:
                 search_context += f"   Content: {content_summary}\n"
             else:
                 search_context += f"   Description: {snippet}\n"
@@ -793,10 +724,10 @@ class ChatManager:
         print()
 
         for i, result in enumerate(results, 1):
-            title = getattr(result, "title", "No title")
-            url = getattr(result, "url", "No URL")
-            snippet = getattr(result, "snippet", "No description")
-            content_summary = getattr(result, "content_summary", None)
+            title = result.get("title", "No title")
+            url = result.get("url", "No URL")
+            snippet = result.get("snippet", "No description")
+            content_summary = result.get("content_summary", None)
 
             print(f"{i}. {title}")
             print(f"   {url}")

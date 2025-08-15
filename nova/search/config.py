@@ -56,19 +56,22 @@ class SearchConfig(BaseModel):
         pattern="^(recent|past_year|any)$",
     )
 
-    # Performance and caching
-    enhancement_cache_enabled: bool = Field(
-        default=True, description="Cache enhanced queries to improve performance"
-    )
-    enhancement_cache_duration_minutes: int = Field(
-        default=15,
-        description="How long to cache enhanced queries",
-        gt=0,
-        le=1440,  # Max 24 hours
-    )
+    # Performance settings
     performance_mode: bool = Field(
         default=True,
         description="Prioritize speed over semantic accuracy in enhancements",
+    )
+    enhancement_timeout: float = Field(
+        default=30.0,
+        description="Timeout in seconds for query enhancement phase",
+        gt=0,
+        le=120,
+    )
+    request_timeout: float = Field(
+        default=10.0,
+        description="HTTP request timeout in seconds for search engines",
+        gt=0,
+        le=60,
     )
 
     # Keyword extraction configuration
@@ -118,13 +121,9 @@ class SearchConfig(BaseModel):
             ),
             default_timeframe=search_config.get("default_timeframe", "any"),
             # Performance settings
-            enhancement_cache_enabled=search_config.get(
-                "enhancement_cache_enabled", True
-            ),
-            enhancement_cache_duration_minutes=search_config.get(
-                "enhancement_cache_duration_minutes", 15
-            ),
             performance_mode=search_config.get("performance_mode", True),
+            enhancement_timeout=search_config.get("enhancement_timeout", 30.0),
+            request_timeout=search_config.get("request_timeout", 10.0),
             # Extraction settings
             extraction_backend=search_config.get("extraction_backend", "yake_only"),
             enable_keybert=search_config.get("enable_keybert", False),
@@ -150,9 +149,9 @@ class SearchConfig(BaseModel):
                 "default_technical_level": self.default_technical_level,
                 "default_timeframe": self.default_timeframe,
                 # Performance settings
-                "enhancement_cache_enabled": self.enhancement_cache_enabled,
-                "enhancement_cache_duration_minutes": self.enhancement_cache_duration_minutes,
                 "performance_mode": self.performance_mode,
+                "enhancement_timeout": self.enhancement_timeout,
+                "request_timeout": self.request_timeout,
                 # Extraction settings
                 "extraction_backend": self.extraction_backend,
                 "enable_keybert": self.enable_keybert,

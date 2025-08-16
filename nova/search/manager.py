@@ -141,16 +141,25 @@ class SearchManager:
     ) -> SearchResult:
         """Enhance a search result with extracted content and summary"""
         try:
-            # Extract content
-            content, success = await search_client.extract_content(result.url)
+            # Extract content with timeout
+            content, success = await asyncio.wait_for(
+                search_client.extract_content(result.url),
+                timeout=10.0,  # 10 second timeout for content extraction
+            )
 
             # Generate summary if content was extracted and summarizer is available
             summary = None
             if success and content and summarizer:
                 try:
-                    summary = await summarizer.summarize_content(content, query)
+                    # Add timeout for AI summarization
+                    summary = await asyncio.wait_for(
+                        summarizer.summarize_content(content, query),
+                        timeout=30.0,  # 30 second timeout
+                    )
+                except TimeoutError:
+                    logger.warning(f"Summary generation timed out for {result.url}")
                 except Exception as e:
-                    logger.debug(f"Summary generation failed for {result.url}: {e}")
+                    logger.warning(f"Summary generation failed for {result.url}: {e}")
 
             # Return enhanced result
             return SearchResult(
@@ -164,6 +173,19 @@ class SearchManager:
                 extraction_success=success,
             )
 
+        except TimeoutError:
+            logger.warning(f"Content extraction timed out for {result.url}")
+            # Return original result with extraction failure marked
+            return SearchResult(
+                title=result.title,
+                url=result.url,
+                snippet=result.snippet,
+                source=result.source,
+                published_date=result.published_date,
+                full_content=None,
+                content_summary=None,
+                extraction_success=False,
+            )
         except Exception as e:
             logger.warning(f"Result enhancement failed for {result.url}: {e}")
             # Return original result with extraction failure marked

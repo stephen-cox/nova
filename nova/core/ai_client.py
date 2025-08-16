@@ -141,18 +141,31 @@ class OpenAIClient(BaseAIClient):
 
     async def generate_response(self, messages: list[dict[str, str]], **kwargs) -> str:
         """Generate response using OpenAI API"""
-        try:
-            response = await self.client.chat.completions.create(
-                model=self.config.model_name,
-                messages=messages,
-                max_tokens=self.config.max_tokens,
-                temperature=self.config.temperature,
-                **kwargs,
-            )
-            return response.choices[0].message.content
+        max_retries = 3
+        retry_delay = 1
 
-        except Exception as e:
-            self._handle_api_error(e)
+        for attempt in range(max_retries):
+            try:
+                response = await self.client.chat.completions.create(
+                    model=self.config.model_name,
+                    messages=messages,
+                    max_tokens=self.config.max_tokens,
+                    temperature=self.config.temperature,
+                    **kwargs,
+                )
+                return response.choices[0].message.content
+
+            except Exception as e:
+                # Check if it's a connection error and we have retries left
+                if "connection" in str(e).lower() and attempt < max_retries - 1:
+                    logger.warning(
+                        f"OpenAI connection error, retrying in {retry_delay}s (attempt {attempt + 1}/{max_retries})"
+                    )
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                    continue
+                else:
+                    self._handle_api_error(e)
 
     async def generate_response_with_tools(
         self,
@@ -289,6 +302,11 @@ class OpenAIClient(BaseAIClient):
     def _handle_api_error(self, error: Exception) -> None:
         """Convert OpenAI errors to our standard errors"""
         import openai
+
+        # Log the detailed error for debugging
+        logger.error(
+            f"OpenAI API error details - Type: {type(error)}, Message: {str(error)}"
+        )
 
         if isinstance(error, openai.RateLimitError):
             raise AIRateLimitError(f"OpenAI rate limit exceeded: {error}")

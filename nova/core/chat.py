@@ -807,7 +807,8 @@ Content: {content}
                     return f"{synthesis}\n\n## Sources:\n{sources_list}"
 
             except Exception as e:
-                logger.warning(f"Enhanced synthesis failed: {e}")
+                logger.error(f"Enhanced synthesis failed: {type(e).__name__}: {e}")
+                print_warning(f"AI synthesis failed: {e}")
 
         # Fallback to standard search response
         return self._generate_search_response(query, search_response, session)

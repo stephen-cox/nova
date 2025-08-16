@@ -32,6 +32,9 @@ class DuckDuckGoSearchClient(BaseSearchClient):
         start_time = datetime.now()
 
         try:
+            # Apply rate limiting before making request
+            await self._wait_for_rate_limit()
+
             # DuckDuckGo HTML search parameters
             params = {
                 "q": query,
@@ -43,6 +46,13 @@ class DuckDuckGoSearchClient(BaseSearchClient):
 
             # First request to get the search page
             response = await self.client.get(self.base_url, params=params)
+
+            # Handle rate limit errors with retry
+            if response.status_code == 429:
+                await self._handle_rate_limit_error(response)
+                # Retry the request after waiting
+                response = await self.client.get(self.base_url, params=params)
+
             response.raise_for_status()
 
             # Parse the HTML response to extract search results

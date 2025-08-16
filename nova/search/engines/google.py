@@ -33,6 +33,9 @@ class GoogleSearchClient(BaseSearchClient):
             raise SearchError("Google Search API key and search engine ID required")
 
         try:
+            # Apply rate limiting before making request
+            await self._wait_for_rate_limit()
+
             params = {
                 "key": self.api_key,
                 "cx": self.search_engine_id,
@@ -43,6 +46,13 @@ class GoogleSearchClient(BaseSearchClient):
             }
 
             response = await self.client.get(self.base_url, params=params)
+
+            # Handle rate limit errors with retry
+            if response.status_code == 429:
+                await self._handle_rate_limit_error(response)
+                # Retry the request after waiting
+                response = await self.client.get(self.base_url, params=params)
+
             response.raise_for_status()
 
             data = response.json()

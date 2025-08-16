@@ -1,9 +1,11 @@
 """Abstract base class for search engines"""
 
+import asyncio
 import logging
 import re
+import time
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 from bs4 import BeautifulSoup
@@ -17,6 +19,11 @@ logger = logging.getLogger(__name__)
 
 class BaseSearchClient(ABC):
     """Abstract base class for search clients"""
+
+    # Class-level rate limiting state shared across all instances
+    _last_request_times: ClassVar[dict[str, float]] = {}
+    _request_counts: ClassVar[dict[str, int]] = {}
+    _rate_limit_resets: ClassVar[dict[str, float]] = {}
 
     def __init__(self, config: dict[str, Any]):
         self.config = config
@@ -32,6 +39,93 @@ class BaseSearchClient(ABC):
                 "Upgrade-Insecure-Requests": "1",
             },
         )
+
+    @property
+    def provider_name(self) -> str:
+        """Get the provider name for rate limiting tracking"""
+        return self.__class__.__name__
+
+    def _get_rate_limit_config(self) -> tuple[float, int]:
+        """Get rate limiting configuration for this provider.
+
+        Returns:
+            tuple: (min_delay_seconds, max_requests_per_minute)
+        """
+        # Default conservative rate limits
+        defaults = {
+            "GoogleSearchClient": (1.0, 100),  # Google has strict rate limits
+            "BingSearchClient": (0.5, 200),  # Bing is more lenient
+            "DuckDuckGoSearchClient": (0.3, 300),  # DuckDuckGo is most lenient
+        }
+
+        provider = self.provider_name
+        return defaults.get(provider, (0.5, 200))  # Default fallback
+
+    async def _wait_for_rate_limit(self) -> None:
+        """Wait if necessary to respect rate limits"""
+        provider = self.provider_name
+        current_time = time.time()
+        min_delay, max_requests_per_minute = self._get_rate_limit_config()
+
+        # Check if we need to reset the request count (every minute)
+        last_reset = self._rate_limit_resets.get(provider, 0)
+        if current_time - last_reset >= 60.0:  # Reset every minute
+            self._request_counts[provider] = 0
+            self._rate_limit_resets[provider] = current_time
+            logger.debug(f"Reset rate limit counter for {provider}")
+
+        # Check request count limit
+        current_count = self._request_counts.get(provider, 0)
+        if current_count >= max_requests_per_minute:
+            wait_time = 60.0 - (current_time - self._rate_limit_resets.get(provider, 0))
+            if wait_time > 0:
+                logger.warning(
+                    f"Rate limit exceeded for {provider}, waiting {wait_time:.1f}s"
+                )
+                await asyncio.sleep(wait_time)
+                # Reset after waiting
+                self._request_counts[provider] = 0
+                self._rate_limit_resets[provider] = time.time()
+
+        # Check minimum delay between requests
+        last_request = self._last_request_times.get(provider, 0)
+        time_since_last = current_time - last_request
+
+        if time_since_last < min_delay:
+            wait_time = min_delay - time_since_last
+            logger.debug(f"Rate limiting {provider}: waiting {wait_time:.2f}s")
+            await asyncio.sleep(wait_time)
+
+        # Update tracking
+        self._last_request_times[provider] = time.time()
+        self._request_counts[provider] = current_count + 1
+
+    async def _handle_rate_limit_error(self, response: httpx.Response) -> None:
+        """Handle 429 rate limit errors with exponential backoff"""
+        if response.status_code == 429:
+            provider = self.provider_name
+
+            # Try to get retry-after header
+            retry_after = response.headers.get("retry-after")
+            if retry_after:
+                try:
+                    wait_time = float(retry_after)
+                except ValueError:
+                    wait_time = 60.0  # Default fallback
+            else:
+                # Exponential backoff: start with 30s, max 300s (5 min)
+                base_wait = 30.0
+                current_count = self._request_counts.get(provider, 0)
+                wait_time = min(base_wait * (2 ** min(current_count // 10, 3)), 300.0)
+
+            logger.warning(
+                f"Rate limited by {provider} (429), waiting {wait_time:.1f}s"
+            )
+            await asyncio.sleep(wait_time)
+
+            # Reset rate limit tracking after waiting
+            self._rate_limit_resets[provider] = time.time()
+            self._request_counts[provider] = 0
 
     async def __aenter__(self):
         """Async context manager entry"""
@@ -87,7 +181,10 @@ class BaseSearchClient(ABC):
             response = await self.client.get(url, timeout=15.0)
             response.raise_for_status()
 
-            doc = Document(response.text)
+            # Sanitize HTML content to remove invalid XML characters
+            html_content = self._sanitize_html_for_xml(response.text)
+
+            doc = Document(html_content)
             content = doc.summary()
 
             if content:
@@ -133,3 +230,30 @@ class BaseSearchClient(ABC):
 
         logger.warning(f"All content extraction methods failed for {url}")
         return None, False
+
+    def _sanitize_html_for_xml(self, html_content: str) -> str:
+        """Sanitize HTML content to remove invalid XML characters that cause readability to fail.
+
+        The readability library fails when HTML contains NULL bytes or other control characters
+        that are not valid in XML. This method removes those characters.
+        """
+        if not html_content:
+            return html_content
+
+        # Remove NULL bytes and other problematic control characters
+        # Keep only valid XML characters: tab, newline, carriage return, and printable characters
+        sanitized = ""
+        for char in html_content:
+            code = ord(char)
+            if (
+                code == 0x09  # tab
+                or code == 0x0A  # newline
+                or code == 0x0D  # carriage return
+                or (0x20 <= code <= 0xD7FF)  # basic multilingual plane
+                or (0xE000 <= code <= 0xFFFD)  # private use area and others
+                or (0x10000 <= code <= 0x10FFFF)
+            ):  # supplementary planes
+                sanitized += char
+            # Skip invalid characters silently
+
+        return sanitized

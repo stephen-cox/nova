@@ -43,10 +43,9 @@ logger = logging.getLogger(__name__)
             expected_result="Semantically enhanced search with KeyBERT extraction",
         ),
         ToolExample(
-            description="Technical search with specific provider",
+            description="Technical search",
             arguments={
                 "query": "Rust memory safety",
-                "provider": "duckduckgo",
                 "max_results": 3,
                 "technical_level": "expert",
             },
@@ -57,7 +56,6 @@ logger = logging.getLogger(__name__)
 async def web_search(
     query: str,
     enhancement: str | None = None,
-    provider: str | None = None,
     max_results: int | None = None,
     timeframe: str | None = None,
     technical_level: str | None = None,
@@ -76,7 +74,6 @@ async def web_search(
     Args:
         query: Search query or question
         enhancement: Enhancement mode (uses config default if None)
-        provider: Search provider (duckduckgo, google, bing) - defaults to duckduckgo
         max_results: Maximum results to return (1-20)
         timeframe: Preferred time range (recent, past_year, any)
         technical_level: Adjust query complexity (beginner, intermediate, expert)
@@ -107,7 +104,7 @@ async def web_search(
 
         # Apply configuration defaults for None values
         enhancement = enhancement or config.search.default_enhancement
-        provider = provider or config.search.default_provider
+        provider = config.search.default_provider
         max_results = max_results or config.search.max_results
         timeframe = timeframe or config.search.default_timeframe
         technical_level = technical_level or config.search.default_technical_level
@@ -199,137 +196,155 @@ async def web_search(
             enhancement_timeout + 15.0
         )  # Allow enhancement time plus buffer for actual search
 
-        async with EnhancedSearchManager(search_config, ai_client) as search_manager:
-            try:
-                logger.info(
-                    f"Starting enhanced search for query: {query} (timeout: {search_timeout}s)"
-                )
-                search_response = await asyncio.wait_for(
-                    search_manager.enhanced_search(
-                        query=query,
-                        provider=provider,
-                        max_results=max_results,
-                        extract_content=True,
-                        enhancement_mode=enhancement_mode,
-                        conversation_context=context,
-                        memory_constraints=memory_constraints,
-                    ),
-                    timeout=search_timeout,
-                )
-                logger.info("Enhanced search completed successfully")
-            except TimeoutError:
-                logger.warning(
-                    f"Search operation timed out after {search_timeout} seconds for query: {query}"
-                )
-                # Try a fallback search with simpler settings
+        try:
+            async with EnhancedSearchManager(
+                search_config, ai_client
+            ) as search_manager:
                 try:
                     logger.info(
-                        "Attempting fallback search with disabled enhancement..."
+                        f"Starting enhanced search for query: {query} (timeout: {search_timeout}s)"
                     )
-                    async with EnhancedSearchManager(
-                        search_config, ai_client=None
-                    ) as fallback_manager:
-                        search_response = await asyncio.wait_for(
-                            fallback_manager.enhanced_search(
-                                query=query,
-                                provider=provider,
-                                max_results=3,  # Reduced results for faster search
-                                extract_content=False,  # No content extraction to speed up
-                                enhancement_mode=SearchEnhancementMode.DISABLED,  # No enhancement
-                                conversation_context="",  # No context
-                                memory_constraints=memory_constraints,
-                            ),
-                            timeout=10.0,  # Shorter timeout for fallback
-                        )
-                        logger.info("Fallback search completed successfully")
-                except Exception as fallback_error:
-                    logger.warning(f"Fallback search also failed: {fallback_error}")
-                    return {
-                        "query": query,
-                        "provider": provider,
-                        "results": [],
-                        "total_results": 0,
-                        "search_time_ms": int(search_timeout * 1000),
-                        "enhancement_mode": (
-                            enhancement_mode.value if enhancement_mode else "disabled"
+                    search_response = await asyncio.wait_for(
+                        search_manager.enhanced_search(
+                            query=query,
+                            provider=provider,
+                            max_results=max_results,
+                            extract_content=True,
+                            enhancement_mode=enhancement_mode,
+                            conversation_context=context,
+                            memory_constraints=memory_constraints,
                         ),
-                        "error": "Search timed out - try with simpler query or disable enhancement",
-                    }
+                        timeout=search_timeout,
+                    )
+                    logger.info("Enhanced search completed successfully")
+                except TimeoutError:
+                    logger.warning(
+                        f"Search operation timed out after {search_timeout} seconds for query: {query}"
+                    )
+                    # Try a fallback search with simpler settings
+                    try:
+                        logger.info(
+                            "Attempting fallback search with disabled enhancement..."
+                        )
+                        async with EnhancedSearchManager(
+                            search_config, ai_client=None
+                        ) as fallback_manager:
+                            search_response = await asyncio.wait_for(
+                                fallback_manager.enhanced_search(
+                                    query=query,
+                                    provider=provider,
+                                    max_results=3,  # Reduced results for faster search
+                                    extract_content=False,  # No content extraction to speed up
+                                    enhancement_mode=SearchEnhancementMode.DISABLED,  # No enhancement
+                                    conversation_context="",  # No context
+                                    memory_constraints=memory_constraints,
+                                ),
+                                timeout=10.0,  # Shorter timeout for fallback
+                            )
+                            logger.info("Fallback search completed successfully")
+                    except Exception as fallback_error:
+                        logger.warning(f"Fallback search also failed: {fallback_error}")
+                        return {
+                            "query": query,
+                            "provider": provider,
+                            "results": [],
+                            "total_results": 0,
+                            "search_time_ms": int(search_timeout * 1000),
+                            "enhancement_mode": (
+                                enhancement_mode.value
+                                if enhancement_mode
+                                else "disabled"
+                            ),
+                            "error": "Search timed out - try with simpler query or disable enhancement",
+                        }
 
-        # Format results for tool output
-        results = []
-        for result in search_response["results"]:
-            result_dict = {
-                "title": (
-                    result.title
-                    if hasattr(result, "title")
-                    else result.get("title", "")
-                ),
-                "url": result.url if hasattr(result, "url") else result.get("url", ""),
-                "snippet": (
-                    result.snippet
-                    if hasattr(result, "snippet")
-                    else result.get("snippet", "")
-                ),
-                "source": (
-                    result.source
-                    if hasattr(result, "source")
-                    else result.get("source", "")
-                ),
+            # Format results for tool output
+            results = []
+            for result in search_response["results"]:
+                result_dict = {
+                    "title": (
+                        result.title
+                        if hasattr(result, "title")
+                        else result.get("title", "")
+                    ),
+                    "url": (
+                        result.url if hasattr(result, "url") else result.get("url", "")
+                    ),
+                    "snippet": (
+                        result.snippet
+                        if hasattr(result, "snippet")
+                        else result.get("snippet", "")
+                    ),
+                    "source": (
+                        result.source
+                        if hasattr(result, "source")
+                        else result.get("source", "")
+                    ),
+                }
+
+                # Add extracted content if available
+                if hasattr(result, "full_content") and result.full_content:
+                    result_dict["content"] = result.full_content
+                elif isinstance(result, dict) and result.get("full_content"):
+                    result_dict["content"] = result["full_content"]
+
+                # Add content summary if available
+                if hasattr(result, "content_summary") and result.content_summary:
+                    result_dict["content_summary"] = result.content_summary
+                elif isinstance(result, dict) and result.get("content_summary"):
+                    result_dict["content_summary"] = result["content_summary"]
+
+                if hasattr(result, "extraction_success"):
+                    result_dict["extraction_success"] = result.extraction_success
+                elif isinstance(result, dict) and "extraction_success" in result:
+                    result_dict["extraction_success"] = result["extraction_success"]
+
+                results.append(result_dict)
+
+            # Prepare response
+            response = {
+                "query": search_response["query"],
+                "provider": search_response["provider"],
+                "results": results,
+                "total_results": search_response["total_results"],
+                "search_time_ms": search_response.get("search_time_ms", 0),
             }
 
-            # Add extracted content if available
-            if hasattr(result, "full_content") and result.full_content:
-                result_dict["content"] = result.full_content
-            elif isinstance(result, dict) and result.get("full_content"):
-                result_dict["content"] = result["full_content"]
+            # Add enhancement details if available
+            if "enhancement_details" in search_response:
+                enhancement_details = search_response["enhancement_details"]
+                response["enhancement"] = {
+                    "mode": enhancement_details["mode"],
+                    "processing_time_ms": enhancement_details["processing_time_ms"],
+                    "context_used": enhancement_details["context_used"],
+                    "enhanced_queries_count": len(
+                        enhancement_details.get("enhanced_queries", [])
+                    ),
+                }
 
-            # Add content summary if available
-            if hasattr(result, "content_summary") and result.content_summary:
-                result_dict["content_summary"] = result.content_summary
-            elif isinstance(result, dict) and result.get("content_summary"):
-                result_dict["content_summary"] = result["content_summary"]
+                # Include enhanced queries for debugging/transparency
+                if enhancement_details.get("enhanced_queries"):
+                    response["enhancement"]["enhanced_queries"] = [
+                        {
+                            "query": eq["query"],
+                            "priority": eq["priority"],
+                            "rationale": eq["rationale"],
+                        }
+                        for eq in enhancement_details["enhanced_queries"]
+                    ]
 
-            if hasattr(result, "extraction_success"):
-                result_dict["extraction_success"] = result.extraction_success
-            elif isinstance(result, dict) and "extraction_success" in result:
-                result_dict["extraction_success"] = result["extraction_success"]
+            return response
 
-            results.append(result_dict)
-
-        # Prepare response
-        response = {
-            "query": search_response["query"],
-            "provider": search_response["provider"],
-            "results": results,
-            "total_results": search_response["total_results"],
-            "search_time_ms": search_response.get("search_time_ms", 0),
-        }
-
-        # Add enhancement details if available
-        if "enhancement_details" in search_response:
-            enhancement_details = search_response["enhancement_details"]
-            response["enhancement"] = {
-                "mode": enhancement_details["mode"],
-                "processing_time_ms": enhancement_details["processing_time_ms"],
-                "context_used": enhancement_details["context_used"],
-                "enhanced_queries_count": len(
-                    enhancement_details.get("enhanced_queries", [])
-                ),
-            }
-
-            # Include enhanced queries for debugging/transparency
-            if enhancement_details.get("enhanced_queries"):
-                response["enhancement"]["enhanced_queries"] = [
-                    {
-                        "query": eq["query"],
-                        "priority": eq["priority"],
-                        "rationale": eq["rationale"],
-                    }
-                    for eq in enhancement_details["enhanced_queries"]
-                ]
-
-        return response
+        finally:
+            # Ensure AI client is properly closed
+            if ai_client:
+                try:
+                    await ai_client.close()
+                    logger.debug("AI client closed successfully in web_search")
+                except Exception as close_error:
+                    logger.warning(
+                        f"Error closing AI client in web_search: {close_error}"
+                    )
 
     except Exception as e:
         # Log the full exception for debugging
@@ -337,6 +352,7 @@ async def web_search(
 
         logger.error(f"Web search failed: {e}")
         logger.error(f"Full traceback: {traceback.format_exc()}")
+
         # Fallback to basic search
         return await _fallback_search(query, max_results or 5, error=str(e))
 

@@ -34,8 +34,8 @@ class TestWebSearch:
             assert "error" in result
 
     @pytest.mark.asyncio
-    async def test_web_search_provider_validation(self):
-        """Test web search provider validation"""
+    async def test_web_search_uses_config_provider(self):
+        """Test web search uses provider from config"""
         with patch("nova.search.manager.EnhancedSearchManager") as mock_manager_class:
             mock_manager = AsyncMock()
             # Setup async context manager
@@ -44,7 +44,7 @@ class TestWebSearch:
 
             search_response = {
                 "query": "test query",
-                "provider": "duckduckgo",
+                "provider": "google",  # Should use config provider
                 "results": [],
                 "total_results": 0,
                 "search_time_ms": 10,
@@ -55,7 +55,7 @@ class TestWebSearch:
             with patch("nova.core.config.config_manager") as mock_config:
                 mock_config_obj = MagicMock()
                 mock_config_obj.search.default_enhancement = "fast"
-                mock_config_obj.search.default_provider = "duckduckgo"
+                mock_config_obj.search.default_provider = "google"  # Config provider
                 mock_config_obj.search.max_results = 5
                 mock_config_obj.search.default_timeframe = "any"
                 mock_config_obj.search.default_technical_level = "intermediate"
@@ -67,13 +67,14 @@ class TestWebSearch:
                 mock_config_obj.search.model_dump.return_value = {}
                 mock_config.load_config.return_value = mock_config_obj
 
-                # Invalid provider should default to duckduckgo
-                result = await web_search("test query", provider="invalid")
+                # Should use config provider
+                result = await web_search("test query")
                 assert result["query"] == "test query"
 
-                # Valid providers should be accepted
-                result = await web_search("test query", provider="google")
-                assert result["query"] == "test query"
+                # Verify search manager was called with config provider
+                mock_manager.enhanced_search.assert_called_once()
+                call_args = mock_manager.enhanced_search.call_args
+                assert call_args[1]["provider"] == "google"  # From config
 
     @pytest.mark.asyncio
     async def test_web_search_results_limit(self):

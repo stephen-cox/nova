@@ -32,6 +32,9 @@ class BingSearchClient(BaseSearchClient):
             raise SearchError("Bing Search API key required")
 
         try:
+            # Apply rate limiting before making request
+            await self._wait_for_rate_limit()
+
             headers = {"Ocp-Apim-Subscription-Key": self.api_key}
             params = {
                 "q": query,
@@ -45,6 +48,15 @@ class BingSearchClient(BaseSearchClient):
             response = await self.client.get(
                 self.base_url, headers=headers, params=params
             )
+
+            # Handle rate limit errors with retry
+            if response.status_code == 429:
+                await self._handle_rate_limit_error(response)
+                # Retry the request after waiting
+                response = await self.client.get(
+                    self.base_url, headers=headers, params=params
+                )
+
             response.raise_for_status()
 
             data = response.json()

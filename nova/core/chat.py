@@ -287,9 +287,6 @@ class ChatManager:
             print("  /tag <tag> - Add tag to conversation")
             print("  /tags     - Show conversation tags")
             print("  /search, /s <query> - Search the web and get AI-powered answers")
-            print(
-                "  /search <query> --provider <provider> - Search with specific provider"
-            )
             print("  /search <query> --max <number> - Limit number of results")
             print("  /prompt <name> - Apply a prompt template")
             print("  /prompts  - List available prompt templates")
@@ -424,7 +421,7 @@ class ChatManager:
         if not search_args:
             print_error("Please provide a search query")
             print_info(
-                "Usage: /search <query> [--provider <provider>] [--max <number>] [--enhancement <mode>] [--technical-level <level>] [--timeframe <time>]"
+                "Usage: /search <query> [--max <number>] [--enhancement <mode>] [--technical-level <level>] [--timeframe <time>]"
             )
             print_info("Enhancement modes: auto, disabled, fast, semantic, hybrid")
             return
@@ -440,7 +437,6 @@ class ChatManager:
             return
 
         query = args["query"]
-        provider = args.get("provider") or self.config.search.default_provider
         max_results = args.get("max_results") or self.config.search.max_results
         enhancement = args.get("enhancement") or self.config.search.default_enhancement
         technical_level = (
@@ -462,7 +458,6 @@ class ChatManager:
             search_response = asyncio.run(
                 web_search(
                     query=query,
-                    provider=provider,
                     max_results=max_results,
                     enhancement=enhancement,
                     technical_level=technical_level,
@@ -500,7 +495,6 @@ class ChatManager:
         """Parse enhanced search arguments with new parameters"""
         parts = search_args.split()
         query_parts = []
-        provider = None
         max_results = None
         enhancement = None
         technical_level = None
@@ -508,10 +502,7 @@ class ChatManager:
 
         i = 0
         while i < len(parts):
-            if parts[i] == "--provider" and i + 1 < len(parts):
-                provider = parts[i + 1]
-                i += 2
-            elif parts[i] == "--max" and i + 1 < len(parts):
+            if parts[i] == "--max" and i + 1 < len(parts):
                 try:
                     max_results = min(int(parts[i + 1]), 50)  # Cap at 50 results
                 except ValueError:
@@ -566,7 +557,6 @@ class ChatManager:
 
         return {
             "query": query,
-            "provider": provider,
             "max_results": max_results,
             "enhancement": enhancement,
             "technical_level": technical_level,

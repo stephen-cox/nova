@@ -150,6 +150,7 @@ class QueryEnhancer:
             memory_constraints,
             max_queries,
         )
+        print(prompt)
 
         try:
             messages = [
@@ -157,7 +158,10 @@ class QueryEnhancer:
                     "role": "system",
                     "content": "You are a search query optimization expert. Generate optimized search queries in the exact JSON format requested. Focus on technical accuracy and search effectiveness.",
                 },
-                {"role": "user", "content": prompt},
+                {
+                    "role": "user",
+                    "content": prompt,
+                },
             ]
 
             # Add timeout to AI client call to prevent hanging
@@ -165,6 +169,7 @@ class QueryEnhancer:
                 self.ai_client.generate_response(messages),
                 timeout=20.0,  # Individual AI client timeout
             )
+            print(response)
 
             # Parse JSON response
             search_queries = self._parse_llm_response(response, user_query, max_queries)
@@ -216,10 +221,11 @@ CONSTRAINTS:
 
 REQUIREMENTS:
 1. Each query MUST include at least 2 must-have terms
-2. Vary query styles: exact phrases, synonyms, related concepts
-3. Prioritize technical accuracy over broad results
-4. Consider recent vs comprehensive results based on timeframe
-5. Use conversation context to refine search intent and focus
+2. Each query MUST include the entities
+3. Vary query styles: exact phrases, synonyms, related concepts
+4. Prioritize technical accuracy over broad results
+5. Consider recent vs comprehensive results based on timeframe
+6. Use conversation context to refine search intent and focus
 
 Return ONLY a JSON array in this exact format:
 [

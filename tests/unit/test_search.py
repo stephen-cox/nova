@@ -5,17 +5,15 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from nova.core.search import (
-    BingSearchClient,
-    DuckDuckGoSearchClient,
-    GoogleSearchClient,
+from nova.models.config import SearchConfig
+from nova.search import (
     SearchError,
     SearchManager,
     SearchResponse,
     SearchResult,
     search_web,
 )
-from nova.models.config import SearchConfig
+from nova.search.engines import BingEngine, DuckDuckGoEngine, GoogleEngine
 
 
 class TestSearchResult:
@@ -127,18 +125,18 @@ class TestSearchConfig:
         assert config.bing["api_key"] == "test_bing_key"
 
 
-class TestDuckDuckGoSearchClient:
+class TestDuckDuckGoEngine:
     """Test DuckDuckGo search client"""
 
     def test_validate_config(self):
         """Test DuckDuckGo config validation"""
-        client = DuckDuckGoSearchClient({})
+        client = DuckDuckGoEngine({})
         assert client.validate_config() is True
 
     @pytest.mark.asyncio
     async def test_search_mock_response(self):
         """Test DuckDuckGo search with mocked response"""
-        client = DuckDuckGoSearchClient({})
+        client = DuckDuckGoEngine({})
 
         # Mock HTML response with realistic DuckDuckGo structure
         mock_html = """
@@ -180,60 +178,58 @@ class TestDuckDuckGoSearchClient:
     @pytest.mark.asyncio
     async def test_search_error_handling(self):
         """Test DuckDuckGo search error handling"""
-        client = DuckDuckGoSearchClient({})
+        client = DuckDuckGoEngine({})
 
         with patch.object(client.client, "get", side_effect=Exception("Network error")):
             with pytest.raises(SearchError, match="DuckDuckGo search failed"):
                 await client.search("test query")
 
 
-class TestGoogleSearchClient:
+class TestGoogleEngine:
     """Test Google search client"""
 
     def test_validate_config_missing_keys(self):
         """Test Google config validation with missing keys"""
-        client = GoogleSearchClient({})
+        client = GoogleEngine({})
         assert client.validate_config() is False
 
-        client = GoogleSearchClient({"api_key": "test"})
+        client = GoogleEngine({"api_key": "test"})
         assert client.validate_config() is False
 
-        client = GoogleSearchClient({"search_engine_id": "test"})
+        client = GoogleEngine({"search_engine_id": "test"})
         assert client.validate_config() is False
 
     def test_validate_config_valid(self):
         """Test Google config validation with valid keys"""
-        client = GoogleSearchClient(
-            {"api_key": "test_key", "search_engine_id": "test_cx"}
-        )
+        client = GoogleEngine({"api_key": "test_key", "search_engine_id": "test_cx"})
         assert client.validate_config() is True
 
     @pytest.mark.asyncio
     async def test_search_no_config(self):
         """Test Google search without proper configuration"""
-        client = GoogleSearchClient({})
+        client = GoogleEngine({})
 
         with pytest.raises(SearchError, match="Google Search API key"):
             await client.search("test query")
 
 
-class TestBingSearchClient:
+class TestBingEngine:
     """Test Bing search client"""
 
     def test_validate_config_missing_key(self):
         """Test Bing config validation with missing key"""
-        client = BingSearchClient({})
+        client = BingEngine({})
         assert client.validate_config() is False
 
     def test_validate_config_valid(self):
         """Test Bing config validation with valid key"""
-        client = BingSearchClient({"api_key": "test_key"})
+        client = BingEngine({"api_key": "test_key"})
         assert client.validate_config() is True
 
     @pytest.mark.asyncio
     async def test_search_no_config(self):
         """Test Bing search without proper configuration"""
-        client = BingSearchClient({})
+        client = BingEngine({})
 
         with pytest.raises(SearchError, match="Bing Search API key"):
             await client.search("test query")
@@ -319,7 +315,7 @@ class TestSearchWebFunction:
         # integration through the SearchManager tests instead
         pass
 
-    @patch("nova.core.search.asyncio.get_event_loop")
+    @patch("nova.search.manager.asyncio.get_event_loop")
     def test_search_web_with_loop(self, mock_get_loop):
         """Test search_web with existing event loop"""
         mock_loop = Mock()

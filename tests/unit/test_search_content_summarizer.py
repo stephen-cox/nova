@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from nova.core.search import (
+from nova.search import (
     ContentSummarizer,
     SearchResult,
 )

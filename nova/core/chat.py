@@ -13,11 +13,11 @@ from nova.core.history import HistoryManager
 from nova.core.input_handler import ChatInputHandler
 from nova.core.memory import MemoryManager
 from nova.core.prompts import PromptManager
-from nova.core.search import SearchError, search_web
 from nova.core.tools import FunctionRegistry
 from nova.models.config import NovaConfig
 from nova.models.message import Conversation, MessageRole
 from nova.models.tools import ExecutionContext
+from nova.search import SearchError, search_web
 from nova.utils.formatting import (
     print_error,
     print_info,
@@ -783,7 +783,7 @@ Content: {content}
         # Try to use advanced synthesis if we have an AI client
         if ai_client:
             try:
-                from nova.core.search import ContentSummarizer
+                from nova.search import ContentSummarizer
 
                 summarizer = ContentSummarizer(ai_client)
 

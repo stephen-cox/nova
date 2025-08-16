@@ -20,7 +20,7 @@ class TestWebSearch:
         with patch("builtins.__import__") as mock_import:
 
             def side_effect(name, *args, **kwargs):
-                if name == "nova.core.search":
+                if name == "nova.search":
                     raise ImportError("SearchManager not available")
                 return __import__(name, *args, **kwargs)
 
@@ -59,7 +59,7 @@ class TestWebSearch:
         assert result["query"] == "test query"
 
     @pytest.mark.asyncio
-    @patch("nova.core.search.SearchManager")
+    @patch("nova.search.SearchManager")
     async def test_web_search_with_search_manager(self, mock_search_manager):
         """Test web search with mocked SearchManager"""
         # Mock search manager and results

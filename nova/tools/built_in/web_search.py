@@ -58,7 +58,7 @@ async def web_search(
 
     # Import here to avoid circular dependencies
     try:
-        from nova.core.search import SearchManager
+        from nova.search import SearchManager
     except ImportError:
         # Fallback implementation
         return await _fallback_search(query, max_results)

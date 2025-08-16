@@ -42,6 +42,7 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 markers = [
     "asyncio: marks tests as async (deselect with '-m \"not asyncio\"')",
+    "integration: marks tests as integration tests requiring real network calls",
 ]
 addopts = [
     "--strict-markers",

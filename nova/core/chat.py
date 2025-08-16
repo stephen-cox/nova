@@ -13,7 +13,6 @@ from nova.core.history import HistoryManager
 from nova.core.input_handler import ChatInputHandler
 from nova.core.memory import MemoryManager
 from nova.core.prompts import PromptManager
-from nova.core.search import SearchError, search_web
 from nova.core.tools import FunctionRegistry
 from nova.models.config import NovaConfig
 from nova.models.message import Conversation, MessageRole
@@ -22,7 +21,6 @@ from nova.utils.formatting import (
     print_error,
     print_info,
     print_message,
-    print_search_results,
     print_success,
     print_warning,
 )
@@ -289,9 +287,6 @@ class ChatManager:
             print("  /tag <tag> - Add tag to conversation")
             print("  /tags     - Show conversation tags")
             print("  /search, /s <query> - Search the web and get AI-powered answers")
-            print(
-                "  /search <query> --provider <provider> - Search with specific provider"
-            )
             print("  /search <query> --max <number> - Limit number of results")
             print("  /prompt <name> - Apply a prompt template")
             print("  /prompts  - List available prompt templates")
@@ -422,12 +417,13 @@ class ChatManager:
             print_info("Type '/help' for available commands")
 
     def _handle_search_command(self, search_args: str, session: ChatSession) -> None:
-        """Handle web search command and generate AI response"""
+        """Handle enhanced web search command using the web_search tool"""
         if not search_args:
             print_error("Please provide a search query")
             print_info(
-                "Usage: /search <query> [--provider <provider>] [--max <number>]"
+                "Usage: /search <query> [--max <number>] [--enhancement <mode>] [--technical-level <level>] [--timeframe <time>]"
             )
+            print_info("Enhancement modes: auto, disabled, fast, semantic, hybrid")
             return
 
         # Check if search is enabled
@@ -435,23 +431,119 @@ class ChatManager:
             print_error("Web search is disabled in configuration")
             return
 
-        # Parse search arguments
+        # Parse enhanced search arguments
+        args = self._parse_enhanced_search_args(search_args)
+        if not args:
+            return
+
+        query = args["query"]
+        max_results = args.get("max_results") or self.config.search.max_results
+        enhancement = args.get("enhancement") or self.config.search.default_enhancement
+        technical_level = (
+            args.get("technical_level") or self.config.search.default_technical_level
+        )
+        timeframe = args.get("timeframe") or self.config.search.default_timeframe
+
+        try:
+            print_info(f"🔍 Searching for: {query}")
+            if enhancement != "disabled":
+                print_info(f"✨ Using {enhancement} enhancement mode...")
+
+            # Get conversation context for enhancement
+            conversation_context = self._get_search_context(session)
+
+            # Use the web_search tool instead of duplicate implementation
+            from nova.tools.built_in.web_search import web_search
+
+            search_response = asyncio.run(
+                web_search(
+                    query=query,
+                    max_results=max_results,
+                    enhancement=enhancement,
+                    technical_level=technical_level,
+                    timeframe=timeframe,
+                    conversation_context=conversation_context,
+                )
+            )
+
+            # Display enhancement details if used
+            if enhancement != "disabled" and "enhancement_details" in search_response:
+                self._display_enhancement_info(search_response["enhancement_details"])
+
+            # Generate AI-powered response using search results
+            if self.config.search.use_ai_answers:
+                print_info("🤖 Generating AI-powered response...")
+                ai_response = self._generate_search_ai_response(
+                    query, search_response, session
+                )
+
+                # Print the AI response
+                print_message("Nova", ai_response)
+
+                # Add to conversation history
+                session.add_user_message(f"/search {query}")
+                session.add_assistant_message(ai_response)
+            else:
+                # Display enhanced search results
+                self._display_enhanced_search_results(search_response)
+
+        except Exception as e:
+            print_error(f"Enhanced search failed: {e}")
+            print_info("Try using --enhancement disabled for basic search")
+
+    def _parse_enhanced_search_args(self, search_args: str) -> dict[str, any] | None:
+        """Parse enhanced search arguments with new parameters"""
         parts = search_args.split()
         query_parts = []
-        provider = None
-        max_results = self.config.search.max_results
+        max_results = None
+        enhancement = None
+        technical_level = None
+        timeframe = None
 
         i = 0
         while i < len(parts):
-            if parts[i] == "--provider" and i + 1 < len(parts):
-                provider = parts[i + 1]
-                i += 2
-            elif parts[i] == "--max" and i + 1 < len(parts):
+            if parts[i] == "--max" and i + 1 < len(parts):
                 try:
                     max_results = min(int(parts[i + 1]), 50)  # Cap at 50 results
                 except ValueError:
                     print_error("Invalid number for --max parameter")
-                    return
+                    return None
+                i += 2
+            elif parts[i] == "--enhancement" and i + 1 < len(parts):
+                enhancement_value = parts[i + 1]
+                if enhancement_value in [
+                    "auto",
+                    "disabled",
+                    "fast",
+                    "semantic",
+                    "hybrid",
+                    "adaptive",
+                ]:
+                    enhancement = enhancement_value
+                else:
+                    print_error(f"Invalid enhancement mode: {enhancement_value}")
+                    print_info(
+                        "Valid modes: auto, disabled, fast, semantic, hybrid, adaptive"
+                    )
+                    return None
+                i += 2
+            elif parts[i] == "--technical-level" and i + 1 < len(parts):
+                tech_level = parts[i + 1]
+                if tech_level in ["beginner", "intermediate", "expert"]:
+                    technical_level = tech_level
+                else:
+                    print_error(f"Invalid technical level: {tech_level}")
+                    print_info("Valid levels: beginner, intermediate, expert")
+                    return None
+                i += 2
+            elif parts[i] == "--timeframe" and i + 1 < len(parts):
+                time_value = parts[i + 1]
+                if time_value in ["recent", "past_year", "any"]:
+                    timeframe = time_value
+                else:
+                    print_error(f"Invalid timeframe: {time_value}")
+                    print_info("Valid timeframes: recent, past_year, any")
+                    return None
                 i += 2
             else:
                 query_parts.append(parts[i])
@@ -459,82 +551,201 @@ class ChatManager:
 
         if not query_parts:
             print_error("Please provide a search query")
-            return
+            return None
 
         query = " ".join(query_parts)
 
-        # Use configured provider if none specified
-        if not provider:
-            provider = self.config.search.default_provider
+        return {
+            "query": query,
+            "max_results": max_results,
+            "enhancement": enhancement,
+            "technical_level": technical_level,
+            "timeframe": timeframe,
+        }
 
-        try:
-            print_info(f"Searching for: {query}")
-            if provider != self.config.search.default_provider:
-                print_info(f"Using provider: {provider}")
+    def _get_search_context(self, session: ChatSession) -> str:
+        """Extract conversation context for search enhancement"""
+        if not self.config.search.enable_conversation_context:
+            return ""
 
-            # Convert config to dict for search_web function
-            search_config = {
-                "search": {
-                    "google": dict(self.config.search.google),
-                    "bing": dict(self.config.search.bing),
-                }
-            }
+        # Get recent messages for context
+        context_count = self.config.search.context_messages_count
+        context_messages = (
+            session.conversation.messages[-context_count:]
+            if session.conversation.messages
+            else []
+        )
 
-            # Get AI client for content summarization if available
-            ai_client = None
-            if self.config.search.use_ai_answers:
-                try:
-                    from nova.core.ai_client import create_ai_client
+        if not context_messages:
+            return ""
 
-                    active_config = self.config.get_active_ai_config()
-                    ai_client = create_ai_client(active_config)
-                except Exception as e:
-                    print_warning(f"AI client unavailable for summarization: {e}")
+        context_parts = []
+        for message in context_messages:
+            if message.role in [MessageRole.USER, MessageRole.ASSISTANT]:
+                # Clean up message content and add to context
+                content = message.content.strip()
 
-            # Perform the search with content extraction if AI answers are enabled
-            search_response = search_web(
-                config=search_config,
-                query=query,
-                provider=provider,
-                max_results=max_results,
-                extract_content=self.config.search.use_ai_answers,  # Extract content only if AI answers are enabled
-                ai_client=ai_client,
-            )
+                # Skip very short messages or commands
+                if len(content) < 10 or content.startswith("/"):
+                    continue
 
-            # Check if AI answers are enabled
-            if self.config.search.use_ai_answers:
-                # Generate comprehensive synthesis if we have enhanced results
-                if any(
-                    hasattr(r, "content_summary") and r.content_summary
-                    for r in search_response.results
-                ):
-                    print_info(
-                        "Generating comprehensive analysis from extracted content..."
-                    )
-                    ai_response = self._generate_enhanced_search_response(
-                        query, search_response, session, ai_client
-                    )
-                else:
-                    # Fallback to standard search response
-                    ai_response = self._generate_search_response(
-                        query, search_response, session
-                    )
+                # Limit length but try to keep complete sentences
+                if len(content) > 150:
+                    # Find the last sentence boundary within limit
+                    limited_content = content[:150]
+                    last_period = limited_content.rfind(".")
+                    last_question = limited_content.rfind("?")
+                    last_exclamation = limited_content.rfind("!")
 
-                # Print the AI response
-                print_message("Nova", ai_response)
+                    sentence_end = max(last_period, last_question, last_exclamation)
+                    if (
+                        sentence_end > 50
+                    ):  # Only truncate at sentence boundary if it's not too short
+                        content = limited_content[: sentence_end + 1]
+                    else:
+                        content = limited_content + "..."
 
-                # Add search query and AI response to session
-                session.add_user_message(f"/search {query}")
-                session.add_assistant_message(ai_response)
+                role_name = "User" if message.role == MessageRole.USER else "Assistant"
+                context_parts.append(f"{role_name}: {content}")
+
+        context_text = "\n".join(context_parts)
+
+        # Add some metadata about the context
+        if context_text:
+            context_text = f"Recent conversation context ({len(context_parts)} messages):\n{context_text}"
+
+        return context_text
+
+    def _display_enhancement_info(self, enhancement_details: dict) -> None:
+        """Display enhancement information to the user"""
+        if not enhancement_details:
+            return
+
+        mode = enhancement_details.get("mode", "unknown")
+        processing_time = enhancement_details.get("processing_time_ms", 0)
+        context_used = enhancement_details.get("context_used", False)
+
+        print_info(f"📊 Enhancement: {mode} mode ({processing_time}ms)")
+
+        if context_used:
+            print_info("💭 Used conversation context for query optimization")
+
+        enhanced_queries = enhancement_details.get("enhanced_queries", [])
+        if enhanced_queries and len(enhanced_queries) > 1:
+            print_info(f"🔍 Generated {len(enhanced_queries)} optimized search queries")
+
+    def _generate_search_ai_response(
+        self, query: str, search_response: dict, session: ChatSession
+    ) -> str:
+        """Generate AI response from enhanced search results"""
+        # Convert search response to a format suitable for AI synthesis
+        results = search_response.get("results", [])
+
+        if not results:
+            return f"I couldn't find any relevant results for your search query: '{query}'. You might want to try different search terms or check your internet connection."
+
+        # Prepare context for AI response
+        search_context = f"Search query: {query}\n\n"
+        search_context += "Search results:\n"
+
+        for i, result in enumerate(results[:5], 1):  # Limit to top 5 results
+            title = result.get("title", "No title")
+            snippet = result.get("snippet", "No description")
+            url = result.get("url", "No URL")
+            content_summary = result.get("content_summary", None)
+            full_content = result.get("content", None)
+
+            search_context += f"{i}. {title}\n"
+            search_context += f"   URL: {url}\n"
+
+            # Use full content if available, then content summary, then snippet
+            if full_content and len(full_content.strip()) > len(snippet.strip()):
+                # Truncate very long content to avoid token limits
+                content_text = (
+                    full_content[:2000] + "..."
+                    if len(full_content) > 2000
+                    else full_content
+                )
+                search_context += f"   Content: {content_text}\n"
+            elif content_summary:
+                search_context += f"   Content: {content_summary}\n"
             else:
-                # Display raw search results
-                print_search_results(search_response)
+                search_context += f"   Description: {snippet}\n"
+            search_context += "\n"
 
-        except SearchError as e:
-            print_error(f"Search failed: {e}")
-            print_info("Try using a different provider with --provider <provider>")
+        # Generate AI response using the search context
+        try:
+            from nova.core.ai_client import create_ai_client
+
+            active_config = self.config.get_active_ai_config()
+            ai_client = create_ai_client(active_config)
+
+            messages = [
+                {
+                    "role": "system",
+                    "content": "You are Nova, an AI assistant. Use the provided search results to give a comprehensive and helpful answer to the user's query. Cite sources when appropriate and provide additional insights based on the information found.",
+                },
+                {
+                    "role": "user",
+                    "content": f"Based on these search results, please answer the query: '{query}'\n\n{search_context}",
+                },
+            ]
+
+            response = asyncio.run(ai_client.generate_response(messages))
+            return response.strip()
+
         except Exception as e:
-            print_error(f"Unexpected search error: {e}")
+            print_warning(f"AI response generation failed: {e}")
+            # Fallback to simple result formatting
+            return self._format_search_results_simple(query, results)
+
+    def _display_enhanced_search_results(self, search_response: dict) -> None:
+        """Display enhanced search results"""
+        results = search_response.get("results", [])
+
+        if not results:
+            print_info("No results found.")
+            return
+
+        provider = search_response.get("provider", "Unknown")
+        total_results = search_response.get("total_results", len(results))
+
+        print_info(f"Found {total_results} results using {provider}:")
+        print()
+
+        for i, result in enumerate(results, 1):
+            title = result.get("title", "No title")
+            url = result.get("url", "No URL")
+            snippet = result.get("snippet", "No description")
+            content_summary = result.get("content_summary", None)
+
+            print(f"{i}. {title}")
+            print(f"   {url}")
+
+            # Show enhanced summary if available
+            if content_summary:
+                print(f"   Summary: {content_summary}")
+            else:
+                print(f"   {snippet}")
+            print()
+
+    def _format_search_results_simple(self, query: str, results: list) -> str:
+        """Simple fallback formatting for search results"""
+        if not results:
+            return f"No results found for: {query}"
+
+        response = f"Here are the search results for '{query}':\n\n"
+
+        for i, result in enumerate(results[:3], 1):  # Show top 3 results
+            title = getattr(result, "title", "No title")
+            snippet = getattr(result, "snippet", "No description")
+            url = getattr(result, "url", "No URL")
+
+            response += f"{i}. **{title}**\n"
+            response += f"   {snippet}\n"
+            response += f"   Source: {url}\n\n"
+
+        return response
 
     def _generate_ai_response(self, session: ChatSession) -> str:
         """Generate AI response using configured provider with tool support"""
@@ -783,7 +994,7 @@ Content: {content}
         # Try to use advanced synthesis if we have an AI client
         if ai_client:
             try:
-                from nova.core.search import ContentSummarizer
+                from nova.search.manager import ContentSummarizer
 
                 summarizer = ContentSummarizer(ai_client)
 
@@ -1127,7 +1338,14 @@ Content: {content}
             )
             return
 
-        parts = args.split()
+        import shlex
+
+        try:
+            parts = shlex.split(args)
+        except ValueError as e:
+            print_error(f"Invalid quoting in command: {e}")
+            return
+
         if not parts:
             print_error("Please provide a tool name")
             return
@@ -1161,7 +1379,29 @@ Content: {content}
 
                 # Execute the tool
                 print_info(f"Executing tool: {tool_name}")
-                asyncio.run(self._execute_tool_direct(tool_name, arguments, session))
+
+                # Handle async execution safely
+                try:
+                    # Check if we're already in an event loop
+                    asyncio.get_running_loop()
+                    # We're in an async context, need to handle this carefully
+                    import concurrent.futures
+
+                    def run_tool():
+                        asyncio.run(
+                            self._execute_tool_direct(tool_name, arguments, session)
+                        )
+
+                    # Run in a separate thread to avoid event loop conflicts
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(run_tool)
+                        future.result()  # Wait for completion
+
+                except RuntimeError:
+                    # No running loop, safe to use asyncio.run directly
+                    asyncio.run(
+                        self._execute_tool_direct(tool_name, arguments, session)
+                    )
 
             except Exception as e:
                 print_error(f"Failed to parse arguments: {e}")
@@ -1224,7 +1464,6 @@ Content: {content}
     ) -> dict | None:
         """Parse command line arguments for a tool"""
         import json
-        import shlex
 
         properties = tool_info.parameters.get("properties", {})
         required = tool_info.parameters.get("required", [])
@@ -1233,23 +1472,8 @@ Content: {content}
         arguments = {}
 
         try:
-            # Use a hybrid approach: handle JSON objects specially, use shlex for others
-            parsed_args = []
-
-            # First, try to identify JSON objects and preserve them
+            # Arguments are already properly parsed by shlex.split() in the caller
             for arg in args:
-                if "=" in arg and "{" in arg and "}" in arg:
-                    # Likely contains JSON object, don't use shlex
-                    parsed_args.append(arg)
-                else:
-                    # Use shlex for proper quote handling of non-JSON strings
-                    try:
-                        parsed_args.extend(shlex.split(arg))
-                    except ValueError:
-                        # Fallback if shlex fails
-                        parsed_args.append(arg)
-
-            for arg in parsed_args:
                 if "=" in arg:
                     key, value = arg.split("=", 1)
                     key = key.strip()
@@ -1277,13 +1501,28 @@ Content: {content}
                                 # Try to parse as JSON
                                 arguments[key] = json.loads(value)
                             else:
-                                arguments[key] = value
+                                # For string type, strip surrounding quotes if present and handle escaped quotes
+                                if value.startswith('"') and value.endswith('"'):
+                                    # Remove surrounding quotes and unescape internal quotes
+                                    arguments[key] = value[1:-1].replace('\\"', '"')
+                                elif value.startswith("'") and value.endswith("'"):
+                                    # Remove surrounding quotes and unescape internal quotes
+                                    arguments[key] = value[1:-1].replace("\\'", "'")
+                                else:
+                                    arguments[key] = value
                         except (ValueError, json.JSONDecodeError) as e:
                             print_error(f"Invalid value for {key}: {value} ({e})")
                             return None
                     else:
-                        # Unknown parameter, treat as string
-                        arguments[key] = value
+                        # Unknown parameter, treat as string and strip quotes if present
+                        if value.startswith('"') and value.endswith('"'):
+                            # Remove surrounding quotes and unescape internal quotes
+                            arguments[key] = value[1:-1].replace('\\"', '"')
+                        elif value.startswith("'") and value.endswith("'"):
+                            # Remove surrounding quotes and unescape internal quotes
+                            arguments[key] = value[1:-1].replace("\\'", "'")
+                        else:
+                            arguments[key] = value
                 else:
                     print_error(f"Invalid argument format: {arg}")
                     print_info(

@@ -15,28 +15,28 @@ profiles:
     max_tokens: 2000
     temperature: 0.7
     # api_key will be set via environment variables
-    
+
   gpt4:
     name: "gpt4"
     provider: "openai"
     model_name: "gpt-4"
     max_tokens: 4000
     temperature: 0.7
-    
+
   claude:
     name: "claude"
     provider: "anthropic"
     model_name: "claude-sonnet-4-20250514"
     max_tokens: 4000
     temperature: 0.7
-    
+
   claude-opus:
     name: "claude-opus"
     provider: "anthropic"
     model_name: "claude-opus-4-20250514"
     max_tokens: 4000
     temperature: 0.7
-    
+
   llama:
     name: "llama"
     provider: "ollama"
@@ -47,6 +47,44 @@ profiles:
 
 # Active profile (defaults to "default" if not specified)
 active_profile: "default"
+
+# Enhanced Web Search Configuration
+search:
+  enabled: true
+  default_provider: "duckduckgo"
+  max_results: 5
+  use_ai_answers: true
+
+  # Enhancement Configuration
+  default_enhancement: "fast"           # auto, disabled, fast, semantic, hybrid
+  enable_conversation_context: true     # Use chat history for context
+  context_messages_count: 5             # Number of recent messages to use
+  default_technical_level: "intermediate"  # beginner, intermediate, expert
+  default_timeframe: "any"             # recent, past_year, any
+
+  # Performance Settings
+  performance_mode: true               # Prioritize speed over accuracy
+  enhancement_timeout: 30.0            # Query enhancement timeout (seconds)
+  request_timeout: 10.0                # HTTP request timeout (seconds)
+
+  # Keyword Extraction Configuration
+  extraction_backend: "yake_only"      # yake_only, keybert_only, hybrid, adaptive
+  enable_keybert: false               # Set to true for KeyBERT (requires optional deps)
+  yake_max_keywords: 10
+  keybert_max_keywords: 6
+  keybert_model: "all-MiniLM-L6-v2"
+
+  # Provider API configurations
+  google: {}  # Add api_key and search_engine_id
+  bing: {}    # Add api_key
+
+# Tools configuration
+tools:
+  enabled: true
+  enabled_built_in_modules: ["file_ops", "web_search", "conversation"]
+  permission_mode: "prompt"
+  execution_timeout: 30
+  max_concurrent_tools: 3
 
 # Memory Management Features:
 # - Conversation summarization for long chats (/summarize command)
@@ -62,3 +100,7 @@ active_profile: "default"
 # - ANTHROPIC_API_KEY: Anthropic-specific API key
 # - NOVA_PROFILE: Override active profile
 # - OLLAMA_HOST: Ollama server URL override
+
+# For Enhanced Search with KeyBERT (optional):
+# Install semantic search dependencies: uv add --optional search-semantic
+# Set search.enable_keybert: true and search.extraction_backend: "hybrid"

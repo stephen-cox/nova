@@ -1,5 +1,6 @@
 """Rich formatting utilities for terminal output"""
 
+import rich.box
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -34,7 +35,9 @@ def print_message(role: str, content: str, timestamp: str = None):
         title=header,
         title_align="left",
         border_style=color,
-        padding=(0, 1),
+        box=rich.box.HORIZONTALS,
+        highlight=True,
+        padding=0,
     )
 
     console.print(panel)
@@ -71,7 +74,7 @@ def format_file_size(size_bytes: int) -> str:
 
 def format_search_results(search_response) -> str:
     """Format search results for display in chat"""
-    from nova.core.search import SearchResponse
+    from nova.search.models import SearchResponse
 
     if not isinstance(search_response, SearchResponse):
         return "Invalid search response"

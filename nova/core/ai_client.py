@@ -46,7 +46,7 @@ class BaseAIClient(ABC):
     @abstractmethod
     async def generate_response(self, messages: list[dict[str, str]], **kwargs) -> str:
         """Generate a response from the AI model"""
-        pass
+        print(messages)
 
     @abstractmethod
     async def generate_response_stream(
@@ -116,6 +116,10 @@ class BaseAIClient(ABC):
         """List available models for this provider"""
         pass
 
+    async def close(self):
+        """Close the AI client and clean up resources"""
+        pass
+
 
 class OpenAIClient(BaseAIClient):
     """OpenAI API client"""
@@ -127,7 +131,7 @@ class OpenAIClient(BaseAIClient):
             import openai
 
             self.client = openai.AsyncOpenAI(
-                api_key=config.api_key, base_url=config.base_url
+                api_key=config.api_key, base_url=config.base_url, timeout=config.timeout
             )
         except ImportError:
             raise AIError("OpenAI library not installed. Install with: uv add openai")
@@ -142,6 +146,7 @@ class OpenAIClient(BaseAIClient):
     async def generate_response(self, messages: list[dict[str, str]], **kwargs) -> str:
         """Generate response using OpenAI API"""
         try:
+            print(messages)
             response = await self.client.chat.completions.create(
                 model=self.config.model_name,
                 messages=messages,
@@ -149,6 +154,7 @@ class OpenAIClient(BaseAIClient):
                 temperature=self.config.temperature,
                 **kwargs,
             )
+            print(response)
             return response.choices[0].message.content
 
         except Exception as e:
@@ -290,6 +296,8 @@ class OpenAIClient(BaseAIClient):
         """Convert OpenAI errors to our standard errors"""
         import openai
 
+        print(error)
+
         if isinstance(error, openai.RateLimitError):
             raise AIRateLimitError(f"OpenAI rate limit exceeded: {error}")
         elif isinstance(error, openai.AuthenticationError):
@@ -298,6 +306,14 @@ class OpenAIClient(BaseAIClient):
             raise AIModelNotFoundError(f"OpenAI model not found: {error}")
         else:
             raise AIError(f"OpenAI API error: {error}")
+
+    async def close(self):
+        """Close the OpenAI client and clean up resources"""
+        try:
+            await self.client.close()
+            logger.debug("OpenAI client closed successfully")
+        except Exception as e:
+            logger.warning(f"Error closing OpenAI client: {e}")
 
 
 class AnthropicClient(BaseAIClient):
@@ -310,7 +326,7 @@ class AnthropicClient(BaseAIClient):
             import anthropic
 
             self.client = anthropic.AsyncAnthropic(
-                api_key=config.api_key, base_url=config.base_url
+                api_key=config.api_key, base_url=config.base_url, timeout=config.timeout
             )
         except ImportError:
             raise AIError(
@@ -401,6 +417,14 @@ class AnthropicClient(BaseAIClient):
         else:
             raise AIError(f"Anthropic API error: {error}")
 
+    async def close(self):
+        """Close the Anthropic client and clean up resources"""
+        try:
+            await self.client.close()
+            logger.debug("Anthropic client closed successfully")
+        except Exception as e:
+            logger.warning(f"Error closing Anthropic client: {e}")
+
 
 class OllamaClient(BaseAIClient):
     """Ollama API client for local models"""
@@ -425,14 +449,17 @@ class OllamaClient(BaseAIClient):
     async def generate_response(self, messages: list[dict[str, str]], **kwargs) -> str:
         """Generate response using Ollama API"""
         try:
-            response = await self.client.chat(
-                model=self.config.model_name,
-                messages=messages,
-                options={
-                    "temperature": self.config.temperature,
-                    "num_predict": self.config.max_tokens,
-                },
-                **kwargs,
+            response = await asyncio.wait_for(
+                self.client.chat(
+                    model=self.config.model_name,
+                    messages=messages,
+                    options={
+                        "temperature": self.config.temperature,
+                        "num_predict": self.config.max_tokens,
+                    },
+                    **kwargs,
+                ),
+                timeout=self.config.timeout,
             )
             return response["message"]["content"]
 
@@ -444,15 +471,18 @@ class OllamaClient(BaseAIClient):
     ) -> AsyncGenerator[str, None]:
         """Generate streaming response using Ollama API"""
         try:
-            stream = await self.client.chat(
-                model=self.config.model_name,
-                messages=messages,
-                options={
-                    "temperature": self.config.temperature,
-                    "num_predict": self.config.max_tokens,
-                },
-                stream=True,
-                **kwargs,
+            stream = await asyncio.wait_for(
+                self.client.chat(
+                    model=self.config.model_name,
+                    messages=messages,
+                    options={
+                        "temperature": self.config.temperature,
+                        "num_predict": self.config.max_tokens,
+                    },
+                    stream=True,
+                    **kwargs,
+                ),
+                timeout=self.config.timeout,
             )
 
             async for chunk in stream:
@@ -480,6 +510,17 @@ class OllamaClient(BaseAIClient):
             raise AIModelNotFoundError(f"Ollama model not found: {error}")
         else:
             raise AIError(f"Ollama API error: {error}")
+
+    async def close(self):
+        """Close the Ollama client and clean up resources"""
+        try:
+            if hasattr(self.client, "_client") and hasattr(
+                self.client._client, "close"
+            ):
+                await self.client._client.close()
+            logger.debug("Ollama client closed successfully")
+        except Exception as e:
+            logger.warning(f"Error closing Ollama client: {e}")
 
 
 def create_ai_client(config: AIModelConfig, function_registry=None) -> BaseAIClient:

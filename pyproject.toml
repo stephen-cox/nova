@@ -18,6 +18,8 @@ dependencies = [
     "newspaper3k>=0.2.8",
     "readability-lxml>=0.8.4.1",
     "prompt-toolkit>=3.0.51",
+    "spacy>=3.8.7",
+    "yake>=0.6.0",
 ]
 
 [project.scripts]
@@ -33,6 +35,10 @@ test = [
     "pytest-mock>=3.10.0",
     "pytest-cov>=4.0.0",
     "pytest-asyncio>=1.1.0",
+]
+search-semantic = [
+    "keybert>=0.8.0",
+    "sentence-transformers>=2.2.0",
 ]
 
 [tool.pytest.ini_options]

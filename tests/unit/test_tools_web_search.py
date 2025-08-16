@@ -1,6 +1,6 @@
 """Tests for web search tools functionality"""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -16,83 +16,158 @@ class TestWebSearch:
     @pytest.mark.asyncio
     async def test_web_search_fallback(self):
         """Test web search with fallback when SearchManager raises exception"""
-        # Mock the import to raise ImportError
-        with patch("builtins.__import__") as mock_import:
-
-            def side_effect(name, *args, **kwargs):
-                if name == "nova.core.search":
-                    raise ImportError("SearchManager not available")
-                return __import__(name, *args, **kwargs)
-
-            mock_import.side_effect = side_effect
-
+        # Mock the import to fail
+        with patch.dict(
+            "sys.modules",
+            {
+                "nova.core.config": None,
+                "nova.search.manager": None,
+                "nova.search.models": None,
+            },
+        ):
             result = await web_search("test query")
 
             assert result["query"] == "test query"
             assert result["provider"] == "fallback"
             assert len(result["results"]) == 1
-            assert (
-                "Search functionality temporarily unavailable"
-                in result["results"][0]["title"]
-            )
+            assert "Web Search Error" in result["results"][0]["title"]
+            assert "error" in result
 
     @pytest.mark.asyncio
-    async def test_web_search_provider_validation(self):
-        """Test web search provider validation"""
-        # Invalid provider should default to duckduckgo
-        result = await web_search("test query", provider="invalid")
-        assert result["query"] == "test query"
+    async def test_web_search_uses_config_provider(self):
+        """Test web search uses provider from config"""
+        with patch("nova.search.manager.EnhancedSearchManager") as mock_manager_class:
+            mock_manager = AsyncMock()
+            # Setup async context manager
+            mock_manager.__aenter__ = AsyncMock(return_value=mock_manager)
+            mock_manager.__aexit__ = AsyncMock(return_value=None)
 
-        # Valid providers should be accepted
-        result = await web_search("test query", provider="google")
-        assert result["query"] == "test query"
+            search_response = {
+                "query": "test query",
+                "provider": "google",  # Should use config provider
+                "results": [],
+                "total_results": 0,
+                "search_time_ms": 10,
+            }
+            mock_manager.enhanced_search = AsyncMock(return_value=search_response)
+            mock_manager_class.return_value = mock_manager
+
+            with patch("nova.core.config.config_manager") as mock_config:
+                mock_config_obj = MagicMock()
+                mock_config_obj.search.default_enhancement = "fast"
+                mock_config_obj.search.default_provider = "google"  # Config provider
+                mock_config_obj.search.max_results = 5
+                mock_config_obj.search.default_timeframe = "any"
+                mock_config_obj.search.default_technical_level = "intermediate"
+                mock_config_obj.search.use_ai_answers = False  # Disable AI
+                mock_config_obj.search.enhancement_timeout = 30.0
+                mock_config_obj.get_active_ai_config.return_value = MagicMock(
+                    provider="openai"
+                )
+                mock_config_obj.search.model_dump.return_value = {}
+                mock_config.load_config.return_value = mock_config_obj
+
+                # Should use config provider
+                result = await web_search("test query")
+                assert result["query"] == "test query"
+
+                # Verify search manager was called with config provider
+                mock_manager.enhanced_search.assert_called_once()
+                call_args = mock_manager.enhanced_search.call_args
+                assert call_args[1]["provider"] == "google"  # From config
 
     @pytest.mark.asyncio
     async def test_web_search_results_limit(self):
         """Test web search results limit validation"""
-        # Test minimum limit
-        result = await web_search("test query", max_results=0)
-        assert result["query"] == "test query"
+        with patch("nova.search.manager.EnhancedSearchManager") as mock_manager_class:
+            mock_manager = AsyncMock()
+            # Setup async context manager
+            mock_manager.__aenter__ = AsyncMock(return_value=mock_manager)
+            mock_manager.__aexit__ = AsyncMock(return_value=None)
 
-        # Test maximum limit
-        result = await web_search("test query", max_results=100)
-        assert result["query"] == "test query"
+            search_response = {
+                "query": "test query",
+                "provider": "duckduckgo",
+                "results": [],
+                "total_results": 0,
+                "search_time_ms": 10,
+            }
+            mock_manager.enhanced_search = AsyncMock(return_value=search_response)
+            mock_manager_class.return_value = mock_manager
+
+            with patch("nova.core.config.config_manager") as mock_config:
+                mock_config_obj = MagicMock()
+                mock_config_obj.search.default_enhancement = "fast"
+                mock_config_obj.search.default_provider = "duckduckgo"
+                mock_config_obj.search.max_results = 5
+                mock_config_obj.search.default_timeframe = "any"
+                mock_config_obj.search.default_technical_level = "intermediate"
+                mock_config_obj.search.use_ai_answers = False  # Disable AI
+                mock_config_obj.search.enhancement_timeout = 30.0
+                mock_config_obj.get_active_ai_config.return_value = MagicMock(
+                    provider="openai"
+                )
+                mock_config_obj.search.model_dump.return_value = {}
+                mock_config.load_config.return_value = mock_config_obj
+
+                # Test minimum limit
+                result = await web_search("test query", max_results=0)
+                assert result["query"] == "test query"
+
+                # Test maximum limit
+                result = await web_search("test query", max_results=100)
+                assert result["query"] == "test query"
 
     @pytest.mark.asyncio
-    @patch("nova.core.search.SearchManager")
-    async def test_web_search_with_search_manager(self, mock_search_manager):
-        """Test web search with mocked SearchManager"""
-        # Mock search manager and results
-        mock_manager = MagicMock()
-        mock_search_manager.return_value = mock_manager
+    async def test_web_search_basic_functionality(self):
+        """Test web search basic functionality"""
+        with patch("nova.search.manager.EnhancedSearchManager") as mock_manager_class:
+            mock_manager = AsyncMock()
+            # Setup async context manager
+            mock_manager.__aenter__ = AsyncMock(return_value=mock_manager)
+            mock_manager.__aexit__ = AsyncMock(return_value=None)
 
-        # Mock search response
-        mock_result = MagicMock()
-        mock_result.title = "Test Title"
-        mock_result.url = "https://example.com"
-        mock_result.snippet = "Test snippet"
-        mock_result.source = "test"
+            search_response = {
+                "query": "test query",
+                "provider": "duckduckgo",
+                "results": [
+                    {
+                        "title": "Test Result",
+                        "url": "https://example.com",
+                        "snippet": "Test snippet",
+                        "source": "example.com",
+                    }
+                ],
+                "total_results": 1,
+                "search_time_ms": 100,
+            }
+            mock_manager.enhanced_search = AsyncMock(return_value=search_response)
+            mock_manager_class.return_value = mock_manager
 
-        mock_response = MagicMock()
-        mock_response.results = [mock_result]
+            with patch("nova.core.config.config_manager") as mock_config:
+                mock_config_obj = MagicMock()
+                mock_config_obj.search.default_enhancement = "fast"
+                mock_config_obj.search.default_provider = "duckduckgo"
+                mock_config_obj.search.max_results = 5
+                mock_config_obj.search.default_timeframe = "any"
+                mock_config_obj.search.default_technical_level = "intermediate"
+                mock_config_obj.search.use_ai_answers = False  # Disable AI
+                mock_config_obj.search.enhancement_timeout = 30.0
+                mock_config_obj.get_active_ai_config.return_value = MagicMock(
+                    provider="openai"
+                )
+                mock_config_obj.search.model_dump.return_value = {}
+                mock_config.load_config.return_value = mock_config_obj
 
-        # Make the async methods return awaitables
-        async def mock_search(*args, **kwargs):
-            return mock_response
+                result = await web_search("test query", max_results=3)
 
-        async def mock_close():
-            return None
-
-        mock_manager.search = mock_search
-        mock_manager.close = mock_close
-
-        result = await web_search("test query")
-
-        assert result["query"] == "test query"
-        assert result["provider"] == "duckduckgo"
-        assert len(result["results"]) == 1
-        assert result["results"][0]["title"] == "Test Title"
-        assert result["results"][0]["url"] == "https://example.com"
+                # Should return valid structure
+                assert result["query"] == "test query"
+                assert result["provider"] == "duckduckgo"
+                assert "results" in result
+                assert isinstance(result["results"], list)
+                assert len(result["results"]) == 1
+                assert result["results"][0]["title"] == "Test Result"
 
 
 class TestGetCurrentTime:

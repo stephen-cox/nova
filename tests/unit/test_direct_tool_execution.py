@@ -144,11 +144,13 @@ class TestDirectToolExecution:
 
     def test_parse_tool_arguments_spaces_in_values(self, chat_manager, mock_tool_info):
         """Test parsing with spaces in unquoted values (should fail)"""
-        args = ["query=python programming"]  # Space without quotes
+        # Simulate what shlex.split() would do to "query=python programming"
+        # It would split into ["query=python", "programming"]
+        args = ["query=python", "programming"]  # Second arg has no = sign
 
         result = chat_manager._parse_tool_arguments("test_tool", args, mock_tool_info)
 
-        # Should fail due to invalid format
+        # Should fail due to invalid format (second arg has no =)
         assert result is None
 
 

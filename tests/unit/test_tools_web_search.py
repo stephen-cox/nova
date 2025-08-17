@@ -50,7 +50,7 @@ class TestWebSearch:
         result = await web_search("test query")
         assert result["query"] == "test query"
         # Should use provider from config, but fallback if SearchManager fails
-        assert result["provider"] in ["google", "fallback"]
+        assert result["provider"] in ["google", "duckduckgo", "fallback"]
 
     @pytest.mark.asyncio
     async def test_web_search_results_limit(self):

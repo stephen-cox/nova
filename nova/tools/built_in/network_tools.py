@@ -29,8 +29,14 @@ async def get_my_ip() -> str:
     Returns:
         Current public IP address
     """
+    chrome_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "DNT": "1",
+    }
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(headers=chrome_headers) as client:
             response = await client.get("https://ipapi.co/ip/", timeout=10.0)
 
             if response.status_code != 200:
@@ -64,8 +70,14 @@ async def get_my_location() -> str:
     Returns:
         Current location including city, region, and country
     """
+    chrome_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "DNT": "1",
+    }
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(headers=chrome_headers) as client:
             response = await client.get("https://ipapi.co/json/", timeout=10.0)
 
             if response.status_code != 200:
@@ -119,8 +131,14 @@ async def get_my_timezone() -> str:
     Returns:
         Current timezone identifier
     """
+    chrome_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "DNT": "1",
+    }
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(headers=chrome_headers) as client:
             response = await client.get("https://ipapi.co/timezone/", timeout=10.0)
 
             if response.status_code != 200:
@@ -157,8 +175,14 @@ async def get_my_country() -> str:
     Returns:
         Current country name and country code
     """
+    chrome_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "DNT": "1",
+    }
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(headers=chrome_headers) as client:
             response = await client.get("https://ipapi.co/json/", timeout=10.0)
 
             if response.status_code != 200:
@@ -214,7 +238,14 @@ async def lookup_ip_address(ip_address: str) -> str:
     try:
         url = f"https://ipapi.co/{ip_address}/json/"
 
-        async with httpx.AsyncClient() as client:
+        chrome_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "DNT": "1",
+        }
+
+        async with httpx.AsyncClient(headers=chrome_headers) as client:
             response = await client.get(url, timeout=10.0)
 
             if response.status_code != 200:

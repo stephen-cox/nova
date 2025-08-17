@@ -121,8 +121,45 @@ async def web_search(
         }
 
     except Exception as e:
-        # Fallback to basic search
-        return await _fallback_search(query, max_results, error=str(e))
+        # Try DuckDuckGo as fallback before giving up
+        try:
+            search_manager = SearchManager(search_config)
+            search_response = await search_manager.search(
+                query=query,
+                provider="duckduckgo",  # Force DuckDuckGo as fallback
+                max_results=max_results,
+                extract_content=False,  # Skip content extraction to be faster
+                ai_client=None,
+            )
+            await search_manager.close()
+
+            # Format results - filter out any with empty URLs
+            results = []
+            for result in search_response.results:
+                if result.url:  # Only include results with valid URLs
+                    result_dict = {
+                        "title": result.title,
+                        "url": result.url,
+                        "snippet": result.snippet,
+                        "source": result.source,
+                    }
+                    results.append(result_dict)
+
+            return {
+                "query": query,
+                "provider": "duckduckgo",
+                "results": results,
+                "total_results": len(results),
+                "fallback": True,
+                "original_error": str(e),
+            }
+        except Exception as fallback_error:
+            # Final fallback to basic search
+            return await _fallback_search(
+                query,
+                max_results,
+                error=f"{str(e)}; Fallback also failed: {str(fallback_error)}",
+            )
 
 
 async def _fallback_search(query: str, max_results: int, error: str = None) -> dict:
@@ -133,13 +170,17 @@ async def _fallback_search(query: str, max_results: int, error: str = None) -> d
         "results": [
             {
                 "title": "Search functionality temporarily unavailable",
-                "url": "",
-                "snippet": f"Web search is not available. {error if error else 'Please check your configuration.'}",
-                "source": "nova",
+                "url": "https://example.com",
+                "snippet": "Web search is not available. Please check your configuration.",
+                "source": "fallback",
             }
         ],
         "total_results": 1,
-        "error": error,
+        "error": (
+            error
+            if error
+            else "Web search is not available. Please check your configuration."
+        ),
     }
 
 

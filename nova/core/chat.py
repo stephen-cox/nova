@@ -17,7 +17,8 @@ from nova.core.tools import FunctionRegistry
 from nova.models.config import NovaConfig
 from nova.models.message import Conversation, MessageRole
 from nova.models.tools import ExecutionContext
-from nova.search import SearchError, search_web
+from nova.search import SearchError
+from nova.search.manager import SearchManager
 from nova.utils.formatting import (
     print_error,
     print_info,
@@ -468,11 +469,7 @@ class ChatManager:
             provider = self.config.search.default_provider
 
         try:
-            print_info(f"Searching for: {query}")
-            if provider != self.config.search.default_provider:
-                print_info(f"Using provider: {provider}")
-
-            # Convert config to dict for search_web function
+            # Convert config to dict for SearchManager
             search_config = {
                 "search": {
                     "google": dict(self.config.search.google),
@@ -480,7 +477,7 @@ class ChatManager:
                 }
             }
 
-            # Get AI client for content summarization if available
+            # Get AI client for query enhancement and content summarization
             ai_client = None
             if self.config.search.use_ai_answers:
                 try:
@@ -489,17 +486,66 @@ class ChatManager:
                     active_config = self.config.get_active_ai_config()
                     ai_client = create_ai_client(active_config)
                 except Exception as e:
-                    print_warning(f"AI client unavailable for summarization: {e}")
+                    print_warning(f"AI client unavailable for enhancement: {e}")
 
-            # Perform the search with content extraction if AI answers are enabled
-            search_response = search_web(
-                config=search_config,
-                query=query,
-                provider=provider,
-                max_results=max_results,
-                extract_content=self.config.search.use_ai_answers,  # Extract content only if AI answers are enabled
-                ai_client=ai_client,
-            )
+            # Extract recent chat context for query enhancement
+            context_messages = []
+            for msg in session.conversation.messages[-5:]:  # Last 5 messages
+                if msg.role in [MessageRole.USER, MessageRole.ASSISTANT]:
+                    context_messages.append(f"{msg.role.value}: {msg.content[:100]}")
+            chat_context = "\n".join(context_messages)
+
+            # Perform enhanced search using async wrapper
+            async def _perform_search():
+                search_manager = SearchManager(search_config)
+                try:
+                    # Use enhanced search if AI client available
+                    if ai_client:
+                        print_info(f"🔍 Searching with AI enhancement: {query}")
+                        if provider != self.config.search.default_provider:
+                            print_info(f"Using provider: {provider}")
+
+                        return await search_manager.search_enhanced(
+                            query=query,
+                            ai_client=ai_client,
+                            chat_context=chat_context,
+                            provider=provider,
+                            max_results=max_results,
+                            extract_content=self.config.search.use_ai_answers,
+                        )
+                    else:
+                        # Fallback to regular search
+                        print_info(f"Searching for: {query}")
+                        if provider != self.config.search.default_provider:
+                            print_info(f"Using provider: {provider}")
+
+                        return await search_manager.search(
+                            query=query,
+                            provider=provider,
+                            max_results=max_results,
+                            extract_content=self.config.search.use_ai_answers,
+                        )
+                finally:
+                    await search_manager.close()
+
+            # Run the async search
+            import asyncio
+
+            try:
+                # Get or create event loop
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # If we're already in an async context, use thread pool
+                    import concurrent.futures
+
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(asyncio.run, _perform_search)
+                        search_response = future.result()
+                else:
+                    search_response = loop.run_until_complete(_perform_search())
+            except RuntimeError:
+                # No event loop exists, create a new one
+                search_response = asyncio.run(_perform_search())
 
             # Check if AI answers are enabled
             if self.config.search.use_ai_answers:

@@ -126,9 +126,14 @@ class OpenAIClient(BaseAIClient):
         try:
             import openai
 
-            self.client = openai.AsyncOpenAI(
-                api_key=config.api_key, base_url=config.base_url
-            )
+            # Only create client if API key is available
+            if config.api_key:
+                self.client = openai.AsyncOpenAI(
+                    api_key=config.api_key, base_url=config.base_url
+                )
+            else:
+                # Don't create client without API key - will be caught by validate_config
+                self.client = None
         except ImportError:
             raise AIError("OpenAI library not installed. Install with: uv add openai")
 
@@ -139,8 +144,14 @@ class OpenAIClient(BaseAIClient):
             return False
         return True
 
+    def _ensure_client(self):
+        """Ensure client is available, raise error if not"""
+        if self.client is None:
+            raise AIAuthenticationError("OpenAI API key not provided")
+
     async def generate_response(self, messages: list[dict[str, str]], **kwargs) -> str:
         """Generate response using OpenAI API"""
+        self._ensure_client()
         max_retries = 3
         retry_delay = 1
 
@@ -182,6 +193,7 @@ class OpenAIClient(BaseAIClient):
             content = await self.generate_response(messages, **kwargs)
             return ToolAwareResponse(content=content)
 
+        self._ensure_client()
         try:
             # Prepare the request with tools
             request_kwargs = {
@@ -274,6 +286,7 @@ class OpenAIClient(BaseAIClient):
         self, messages: list[dict[str, str]], **kwargs
     ) -> AsyncGenerator[str, None]:
         """Generate streaming response using OpenAI API"""
+        self._ensure_client()
         try:
             stream = await self.client.chat.completions.create(
                 model=self.config.model_name,
@@ -293,6 +306,7 @@ class OpenAIClient(BaseAIClient):
 
     async def list_models(self) -> list[str]:
         """List available OpenAI models"""
+        self._ensure_client()
         try:
             models = await self.client.models.list()
             return [model.id for model in models.data]

@@ -7,6 +7,7 @@ from typing import Any
 from .content import ContentSummarizer
 from .engines import get_search_engine, list_search_engines
 from .models import SearchError, SearchResponse, SearchResult
+from .query_enhancer import QueryEnhancer
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,7 @@ class SearchManager:
     def __init__(self, config: dict[str, Any]):
         self.config = config
         self.providers = {}
+        self.query_enhancer = None
         self._initialize_providers()
 
     def _initialize_providers(self):
@@ -199,6 +201,89 @@ class SearchManager:
                 content_summary=None,
                 extraction_success=False,
             )
+
+    async def search_enhanced(
+        self,
+        query: str,
+        ai_client=None,
+        chat_context: str = "",
+        **kwargs,
+    ) -> SearchResponse:
+        """Enhanced search with AI-powered query optimization
+
+        Args:
+            query: Original user search query
+            ai_client: AI client for query enhancement
+            chat_context: Recent conversation context for disambiguation
+            **kwargs: Additional search parameters (provider, max_results, etc.)
+
+        Returns:
+            SearchResponse with enhanced and deduplicated results
+        """
+        if ai_client:
+            # Initialize enhancer if not exists
+            if not self.query_enhancer:
+                self.query_enhancer = QueryEnhancer(ai_client)
+
+            try:
+                # Get enhanced queries
+                enhancement = await self.query_enhancer.enhance_query(
+                    query, chat_context
+                )
+                logger.info(
+                    f"Enhanced search strategy: {enhancement.get('search_strategy', 'N/A')}"
+                )
+
+                # Search with multiple queries
+                all_results = []
+
+                # Search with original query first
+                original_response = await self.search(query, **kwargs)
+                all_results.extend(original_response.results)
+
+                # Search with enhanced queries
+                for enhanced_query in enhancement.get("enhanced_queries", []):
+                    try:
+                        enhanced_response = await self.search(enhanced_query, **kwargs)
+                        all_results.extend(enhanced_response.results)
+                    except Exception as e:
+                        logger.warning(f"Enhanced query '{enhanced_query}' failed: {e}")
+
+                # Deduplicate by URL and rank by relevance
+                unique_results = self._deduplicate_results(all_results)
+
+                return SearchResponse(
+                    query=query,
+                    results=unique_results[: kwargs.get("max_results", 10)],
+                    total_results=len(unique_results),
+                    search_time_ms=original_response.search_time_ms,
+                    provider=original_response.provider,
+                )
+
+            except Exception as e:
+                logger.warning(f"Query enhancement failed: {e}")
+                # Fallback to regular search
+                return await self.search(query, **kwargs)
+
+        # No AI client - use regular search
+        return await self.search(query, **kwargs)
+
+    def _deduplicate_results(self, results: list[SearchResult]) -> list[SearchResult]:
+        """Remove duplicate URLs, keeping first occurrence
+
+        Args:
+            results: List of search results potentially containing duplicates
+
+        Returns:
+            List of unique search results
+        """
+        seen_urls = set()
+        unique_results = []
+        for result in results:
+            if result.url not in seen_urls:
+                seen_urls.add(result.url)
+                unique_results.append(result)
+        return unique_results
 
     def get_available_providers(self) -> list[str]:
         """Get list of available search providers"""

@@ -20,8 +20,12 @@ class BaseSearchEngine(ABC):
 
     def __init__(self, config: dict[str, Any]):
         self.config = config
+        # Use a conservative Chrome-like user agent for better compatibility
         self.client = httpx.AsyncClient(
-            timeout=30.0, headers={"User-Agent": "Nova AI Assistant/1.0"}
+            timeout=30.0,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            },
         )
 
     @abstractmethod

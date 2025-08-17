@@ -21,37 +21,54 @@ from nova.tools import tool
             expected_result="Web search results with titles, URLs, and summaries",
         ),
         ToolExample(
-            description="Technical search with specific provider",
+            description="Technical search with specific results limit",
             arguments={
                 "query": "Python async best practices",
-                "provider": "google",
                 "max_results": 3,
             },
-            expected_result="Top 3 Google search results about Python async",
+            expected_result="Top 3 search results about Python async",
         ),
     ],
 )
 async def web_search(
     query: str,
-    provider: str = "duckduckgo",
     max_results: int = 5,
-    include_content: bool = True,
 ) -> dict:
     """
     Search the web for information on any topic.
 
     Args:
         query: Search query or question
-        provider: Search provider to use (duckduckgo, google, bing)
         max_results: Maximum number of results to return (1-20)
-        include_content: Include detailed content extraction from pages
 
     Returns:
         Dictionary with search results including titles, URLs, and summaries
     """
-    # Validate provider
-    if provider not in ["duckduckgo", "google", "bing"]:
+    # Load config to get search provider and search configuration
+    try:
+        from nova.core.config import config_manager
+
+        config = config_manager.load_config()
+        provider = config.search.default_provider
+        extract_content = True  # Always extract content
+
+        # Convert config to expected format for SearchManager
+        search_config = {
+            "search": {
+                "google": dict(config.search.google),
+                "bing": dict(config.search.bing),
+            }
+        }
+    except Exception:
+        # Fallback to default config if config loading fails
         provider = "duckduckgo"
+        extract_content = True
+        search_config = {
+            "search": {
+                "google": {},
+                "bing": {},
+            }
+        }
 
     # Validate max_results
     max_results = max(1, min(20, max_results))
@@ -63,14 +80,6 @@ async def web_search(
         # Fallback implementation
         return await _fallback_search(query, max_results)
 
-    # Convert config to expected format for SearchManager
-    search_config = {
-        "search": {
-            "google": {},
-            "bing": {},
-        }
-    }
-
     try:
         # Use SearchManager directly for async operation
         search_manager = SearchManager(search_config)
@@ -78,7 +87,7 @@ async def web_search(
             query=query,
             provider=provider,
             max_results=max_results,
-            extract_content=include_content,
+            extract_content=extract_content,
             ai_client=None,  # Skip AI summarization for now
         )
 

@@ -261,26 +261,18 @@ class TestWebSearchToolIntegration:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
-    async def test_web_search_tool_provider_selection(self):
-        """Test web_search tool with different providers"""
-        # Test with default provider
-        result1 = await web_search("JavaScript frameworks", max_results=2)
-        assert len(result1["results"]) > 0
+    async def test_web_search_tool_uses_config_provider(self):
+        """Test web_search tool uses provider from configuration"""
+        # Test with default configuration
+        result = await web_search("JavaScript frameworks", max_results=2)
+        assert len(result["results"]) > 0
+        assert "provider" in result
 
-        # Test with explicit provider
-        result2 = await web_search(
-            "JavaScript frameworks", provider="duckduckgo", max_results=2
-        )
-        assert result2["provider"] == "duckduckgo"
-        assert len(result2["results"]) > 0
-
-        # Results might be different between providers
-        # Just verify both return valid results
-        for result in [result1, result2]:
-            first_result = result["results"][0]
-            assert first_result["title"]
-            assert first_result["url"].startswith(("http://", "https://"))
-            assert first_result["snippet"]
+        # Verify the result contains expected fields
+        for search_result in result["results"]:
+            assert search_result["title"]
+            assert search_result["url"].startswith(("http://", "https://"))
+            assert search_result["snippet"]
 
     @pytest.mark.asyncio
     @pytest.mark.integration

@@ -37,15 +37,20 @@ class TestWebSearch:
             )
 
     @pytest.mark.asyncio
-    async def test_web_search_provider_validation(self):
-        """Test web search provider validation"""
-        # Invalid provider should default to duckduckgo
-        result = await web_search("test query", provider="invalid")
-        assert result["query"] == "test query"
+    @patch("nova.core.config.config_manager")
+    async def test_web_search_uses_config_provider(self, mock_config_manager):
+        """Test web search uses provider from config"""
+        # Mock config with google provider
+        mock_config = MagicMock()
+        mock_config.search.default_provider = "google"
+        mock_config.search.google = {}
+        mock_config.search.bing = {}
+        mock_config_manager.load_config.return_value = mock_config
 
-        # Valid providers should be accepted
-        result = await web_search("test query", provider="google")
+        result = await web_search("test query")
         assert result["query"] == "test query"
+        # Should use provider from config, but fallback if SearchManager fails
+        assert result["provider"] in ["google", "fallback"]
 
     @pytest.mark.asyncio
     async def test_web_search_results_limit(self):
@@ -60,8 +65,18 @@ class TestWebSearch:
 
     @pytest.mark.asyncio
     @patch("nova.search.SearchManager")
-    async def test_web_search_with_search_manager(self, mock_search_manager):
+    @patch("nova.core.config.config_manager")
+    async def test_web_search_with_search_manager(
+        self, mock_config_manager, mock_search_manager
+    ):
         """Test web search with mocked SearchManager"""
+        # Mock config
+        mock_config = MagicMock()
+        mock_config.search.default_provider = "duckduckgo"
+        mock_config.search.google = {}
+        mock_config.search.bing = {}
+        mock_config_manager.load_config.return_value = mock_config
+
         # Mock search manager and results
         mock_manager = MagicMock()
         mock_search_manager.return_value = mock_manager

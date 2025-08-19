@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from nova.core.chat import ChatManager, ChatSession
-from nova.models.config import AIProfile, NovaConfig, SearchConfig
+from nova.models.config import AIProfile, ChatConfig, NovaConfig, SearchConfig
 
 
 class TestSearchCommandError:
@@ -22,6 +22,7 @@ class TestSearchCommandError:
                 )
             },
             active_profile="default",
+            chat=ChatConfig(history_dir="/tmp/test", auto_save=False),
             search=SearchConfig(enabled=True),
         )
 
@@ -80,6 +81,7 @@ class TestSearchCommandError:
                 )
             },
             active_profile="default",
+            chat=ChatConfig(history_dir="/tmp/test", auto_save=False),
             search=SearchConfig(enabled=True, use_ai_answers=False),
         )
 
@@ -144,6 +146,7 @@ class TestSearchCommandError:
                 )
             },
             active_profile="default",
+            chat=ChatConfig(history_dir="/tmp/test", auto_save=False),
             search=SearchConfig(enabled=True, use_ai_answers=True),
         )
 

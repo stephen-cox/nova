@@ -234,31 +234,11 @@ class SearchManager:
                     f"Enhanced search strategy: {enhancement.get('search_strategy', 'N/A')}"
                 )
 
-                # Search with multiple queries
-                all_results = []
+                # Use only the primary search term
+                primary_query = enhancement.get("primary_search", query)
+                search_response = await self.search(primary_query, **kwargs)
 
-                # Search with original query first
-                original_response = await self.search(query, **kwargs)
-                all_results.extend(original_response.results)
-
-                # Search with enhanced queries
-                for enhanced_query in enhancement.get("enhanced_queries", []):
-                    try:
-                        enhanced_response = await self.search(enhanced_query, **kwargs)
-                        all_results.extend(enhanced_response.results)
-                    except Exception as e:
-                        logger.warning(f"Enhanced query '{enhanced_query}' failed: {e}")
-
-                # Deduplicate by URL and rank by relevance
-                unique_results = self._deduplicate_results(all_results)
-
-                return SearchResponse(
-                    query=query,
-                    results=unique_results[: kwargs.get("max_results", 10)],
-                    total_results=len(unique_results),
-                    search_time_ms=original_response.search_time_ms,
-                    provider=original_response.provider,
-                )
+                return search_response
 
             except Exception as e:
                 logger.warning(f"Query enhancement failed: {e}")

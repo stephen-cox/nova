@@ -6,6 +6,7 @@ import os
 import uuid
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from nova.core.ai_client import AIError, create_ai_client, generate_sync_response
 from nova.core.config import config_manager
@@ -157,6 +158,52 @@ class ChatManager:
             PromptManager(self.config.prompts) if self.config.prompts.enabled else None
         )
         self.input_handler = ChatInputHandler()
+
+    def _get_datetime_context(self) -> str:
+        """Get current date, time, and timezone information for context"""
+        try:
+            # Try to get local timezone using multiple methods
+            local_tz = None
+
+            # Method 1: Try to get from datetime.now()
+            try:
+                local_now = datetime.now().astimezone()
+                local_tz = local_now.tzinfo
+            except Exception:
+                pass
+
+            # Method 2: Try to get from system timezone
+            if not local_tz:
+                try:
+                    import time
+
+                    tz_name = (
+                        time.tzname[time.daylight]
+                        if hasattr(time, "tzname") and time.tzname
+                        else None
+                    )
+                    if tz_name:
+                        local_tz = ZoneInfo(tz_name)
+                except Exception:
+                    pass
+
+            # Method 3: Default to UTC
+            if not local_tz:
+                local_tz = ZoneInfo("UTC")
+
+            # Get current datetime with timezone
+            now = datetime.now(local_tz)
+
+            # Format the datetime information
+            date_str = now.strftime("%Y-%m-%d")
+            time_str = now.strftime("%H:%M:%S")
+            tz_str = now.strftime("%Z") or now.strftime("%z") or str(now.tzinfo)
+
+            return f"Current context: {date_str} {time_str} {tz_str}"
+        except Exception:
+            # Fallback to basic UTC time
+            now = datetime.now()
+            return f"Current context: {now.strftime('%Y-%m-%d %H:%M:%S')} UTC"
 
     async def _initialize_session_tools(self, session: ChatSession) -> None:
         """Initialize tools for a chat session"""
@@ -490,6 +537,12 @@ class ChatManager:
 
             # Extract recent chat context for query enhancement
             context_messages = []
+
+            # Add current date/time/timezone information
+            datetime_context = self._get_datetime_context()
+            context_messages.append(datetime_context)
+
+            # Add recent conversation messages
             for msg in session.conversation.messages[-5:]:  # Last 5 messages
                 if msg.role in [MessageRole.USER, MessageRole.ASSISTANT]:
                     context_messages.append(f"{msg.role.value}: {msg.content[:100]}")

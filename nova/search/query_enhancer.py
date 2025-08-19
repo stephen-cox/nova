@@ -26,7 +26,7 @@ class QueryEnhancer:
             Dict containing original query, enhanced queries, and strategy
         """
         enhancement_prompt = f"""You are a search-query optimizer.
-Given (A) the user’s latest question and (B) a short chat-context summary,
+Given (A) the user's latest question and (B) a short chat-context summary,
 produce a JSON object to drive a web search.
 
 Rules:
@@ -39,9 +39,10 @@ Rules:
 Return as JSON:
 {{
     "original": "{user_query}",
-    "enhanced_queries": [
-        "optimized query 1",
-        "optimized query 2"
+    "primary_search": "the best optimized search query",
+    "alternatives": [
+        "alternative query 1",
+        "alternative query 2"
     ],
     "search_strategy": "brief explanation of approach"
 }}
@@ -67,7 +68,7 @@ B) chat_context = {chat_context}
 
                 # Validate response structure
                 if not all(
-                    key in enhancement_data for key in ["original", "enhanced_queries"]
+                    key in enhancement_data for key in ["original", "primary_search"]
                 ):
                     raise ValueError("Invalid enhancement response structure")
 

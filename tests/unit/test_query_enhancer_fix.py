@@ -23,7 +23,8 @@ class TestQueryEnhancerFix:
         mock_response = json.dumps(
             {
                 "original": "test query",
-                "enhanced_queries": ["optimized query 1", "optimized query 2"],
+                "primary_search": "optimized query 1",
+                "alternatives": ["alternative query 1", "alternative query 2"],
                 "search_strategy": "test strategy",
             }
         )
@@ -47,7 +48,8 @@ class TestQueryEnhancerFix:
 
         # Verify the result is properly structured
         assert result["original"] == "test query"
-        assert len(result["enhanced_queries"]) == 2
+        assert result["primary_search"] == "optimized query 1"
+        assert len(result["alternatives"]) == 2
         assert result["search_strategy"] == "test strategy"
 
     @pytest.mark.asyncio
@@ -65,7 +67,8 @@ class TestQueryEnhancerFix:
         mock_response = json.dumps(
             {
                 "original": "test query",
-                "enhanced_queries": ["query 1"],
+                "primary_search": "query 1",
+                "alternatives": ["alternative 1"],
                 "search_strategy": "strategy",
             }
         )
